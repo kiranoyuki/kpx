@@ -1070,7 +1070,7 @@
           <div class="rel-label">Foreign keys</div>
           <ul class="fk">
             <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span></li>
-            <li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">owns the case &middot; earns nothing</span></li>
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums">
@@ -1123,7 +1123,7 @@
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums"><span class="enum"><b>status</b> Scheduled &middot; Completed &middot; Cancelled</span></div>
-          <p style="font-size:12px">Every procedure has at least one, so the rule has no special cases: <strong>one completed session, one invoice line.</strong> Staff sit here rather than on the procedure &mdash; different visits can have different assistants.</p>
+          <p style="font-size:12px">Every procedure has at least one, so the rule has no special cases: <strong>one completed session, one invoice line.</strong> Staff sit here, not on the procedure: <strong>only whoever did the work is paid</strong>, and three visits may be worked by different doctors and assistants.</p>
         </div>
       </div>
     </div>
@@ -1165,6 +1165,7 @@
           </div>
           <div class="rel-label">Invariant</div>
           <p style="font-size:12px"><strong>Append-only.</strong> A finding recorded in error is marked <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">EnteredInError</code>, never deleted &mdash; a clinical record must show what was believed at the time, and by whom.</p>
+          <p style="font-size:12px"><strong>A proposal never writes here.</strong> Planned work is an overlay drawn from <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">ProcedureTooth</code>; only a completed procedure changes the patient&rsquo;s actual record.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>ProcedureTooth</h4></div>

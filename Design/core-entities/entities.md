@@ -242,7 +242,7 @@ The top-level clinical record for a course of treatment.
 |-------|------|-------|
 | id | UUID | PK |
 | patientId | UUID | FK → PatientProfile — a plan requires an arrived, verified patient |
-| doctorId | UUID | FK → StaffProfile |
+| doctorId | UUID | FK → StaffProfile — the doctor **responsible for the case**. Ownership only: this earns nothing. Commission follows whoever actually worked each session |
 | title | string | e.g., "Lower implant — Q3 2026" |
 | status | enum | Draft, PendingApproval, Active, Completed, Cancelled |
 | isSpecial | bool | derived from procedures; if true, requires SpecialProcedureProposal approval |
@@ -457,6 +457,27 @@ Pathology and restorations sit in one enum deliberately: a dentist charting a mo
 - **Rows are append-only.** A finding recorded in error is marked `EnteredInError`, never deleted or edited — a clinical record has to show what was believed at the time, and by whom.
 
 > The link from finding to treatment is `resolvedByProcedureId`. That is what lets the chart answer "we found caries on 46 in March — what did we do about it, and when?", which is the question an audit or a second opinion actually asks.
+
+**What may write to the record**
+
+A proposal is a *drawing*, not a fact. The chart shows three layers, and only one of them is the patient's actual dental health:
+
+| Layer | Source | Is it the record? |
+|-------|--------|-------------------|
+| Existing state | `ToothCondition` rows, status Active | **yes** — the patient's real dental health |
+| Findings to treat | `ToothCondition` rows, pathology types, status Active | **yes** |
+| Planned work | `ProcedureTooth` on procedures with status Proposed / Accepted / Scheduled | **no** — an overlay for the doctor to read |
+
+**Proposing treatment never changes the record.** A doctor can plan a crown on 24 and have it render on the chart, and the tooth's condition is untouched until the work is actually done. Two writes follow from real work, and they fire at different moments:
+
+| Write | Fires when | Why then |
+|-------|-----------|----------|
+| A finding is **charted** | any session, at any time | a clinician who spots new caries mid-treatment records it immediately |
+| The **resulting condition** from `ServiceCategory.resultingConditionType` | the procedure's **final** session completes | a half-placed crown is not a crown; a root canal is not treated until it is obturated |
+
+For a single-session procedure — most of them — the final session *is* the session, so "completed session updates the record" holds exactly. For a multi-session crown, the `Crown` condition appears when it is cemented, not when the tooth is prepared.
+
+> **Cardinality of `resolvedByProcedureId`.** Because the FK sits on the condition, **many findings may point at one procedure** — one full-mouth scaling resolves calculus on twenty teeth. The reverse is not expressible: a single finding needing several procedures (deep caries requiring a root canal *and* a crown) must point at whichever procedure completes its treatment. The chart stays correct throughout; only the audit trail loses the detail that two procedures shared the work. A junction table would add it later without disturbing existing rows.
 
 > **The dental exam needs no entity of its own.** An exam is already a `TreatmentProcedure` of a Consultation category: billable, dated, attributed to a doctor. `observedDuringProcedureId` groups the findings charted at it. One nullable FK does the work of a whole `DentalExamination` table, and the exam gets billed through the same path as every other piece of work.
 
@@ -939,7 +960,8 @@ A single earned commission for any commissionable staff member. One unified reco
 
 **Invariants**
 - Exactly the FK its `sourceType` names is set; the other is null.
-- Commission is earned **per completed session**, matching the granularity at which the clinic is paid. `ProcedureSession` carries its own `performedBy` and `assistantId`, so a procedure whose sessions were worked by different assistants attributes each one correctly — which a procedure-level entry could not.
+- Commission is earned **per completed session**, matching the granularity at which the clinic is paid.
+- **Only the people who did the work are paid.** An entry credits the session's `performedBy` and its `assistantId` — never `TreatmentPlan.doctorId`, who owns the case but may not have been in the room. A procedure delivered over three visits by two different doctors and two different assistants produces entries attributing each visit to whoever was actually there.
 - **No staff member earns commission on their own treatment.** An entry may not be created where the `staffId` resolves to the same `User` as the patient on the procedure's `TreatmentPlan`. This applies to the doctor and the assistant alike.
 
 > Staff are permitted to be treated at the clinic — the rule is only about payment. If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient.
