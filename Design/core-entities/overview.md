@@ -12,7 +12,7 @@ The system is organized into 7 domains, each grouping entities by concern.
 | Catalog & Pricing | ServiceCategory, PriceList, Promotion, DiscountProposal, SpecialProcedureProposal |
 | Billing | Invoice, Payment |
 | Inventory | InventoryItem, InventoryLog, Vendor, ProcedureSupplyList |
-| Communication & HR | Notification, AttendanceLog, CommissionRule, CommissionEntry, ReceptionistPerformanceLog (standalone bridge), PayrollAdjustment, PayrollRecord |
+| Communication & HR | Notification, AttendanceLog, WageRate, CommissionRule, CommissionEntry, ReceptionistPerformanceLog (standalone bridge), PayrollAdjustment, PayrollRecord |
 
 ---
 
@@ -37,12 +37,13 @@ User — PERSON RECORD (one row per human; credentials optional)
  │
  ├── StaffProfile — EMPLOYMENT ONLY
  │    │   employmentStatus = Intern | Active | OnLeave | Departed  <- gates staff portal
- │    │   joinDate, endDate?, specialty?, licenseNumber?, wageType, hourlyRate?
+ │    │   joinDate, endDate?, specialty?, licenseNumber?    (no pay fields — see WageRate)
  │    ├── AttendanceLog (clock-in / clock-out per shift)
+ │    ├── WageRate (versioned pay: one row per rate, effectiveFrom)
  │    ├── CommissionEntry ←─────────────────────────────────────────────┐
  │    ├── PayrollAdjustment [Manager-only] (credits / debits)           │
  │    └── PayrollRecord [Manager-only]                                  │
- │         ├── ← AttendanceLog (period totals → basePay)                │
+ │         ├── ← AttendanceLog × WageRate (hours × rate on that day)     │
  │         ├── ← CommissionEntry (all roles — procedure + event based)  │
  │         └── ← PayrollAdjustment (manual credits and debits)          │
  │                                                                      │
@@ -185,30 +186,48 @@ Everything clinical orbits the treatment plan: procedures, progress logs, notes,
 ### 11. `Notification` is a first-class entity
 Paging between staff (doctor → assistant, manager → all) is tracked as notifications, not just ephemeral pushes. This supports audit and follow-up reminders.
 
-### 12. Payroll is built from two independent streams
+### 12. Pay rates are versioned, never overwritten
+`WageRate` holds one row per rate a staff member has ever been on, each with an `effectiveFrom`. A raise or a promotion **inserts** a row; it never edits one. The rate for a day of work is the row with the greatest `effectiveFrom` on or before that day — the same mechanism `PriceList` uses to price a procedure by the date it was performed.
+
+A single `hourlyRate` column on `StaffProfile` could only ever hold the *current* rate. That answers "what do we pay them now" and nothing else:
+
+| Question | Single column | Versioned rows |
+|----------|---------------|----------------|
+| What is this person paid today? | yes | yes |
+| What were they paid last quarter? | **no — overwritten** | yes |
+| Can we reproduce an old payslip? | **no** | yes |
+| Promotion lands mid-period? | **cannot express** | resolves per day |
+
+The last row is the one that forces the design. An intern promoted on the 15th has half a month at the trainee rate and half at the new one; with a single column you must pick one rate for the whole period and both choices are wrong. Because `WageRate` is resolved per `AttendanceLog` day, that case needs no special handling at all.
+
+Settled payroll was never *wrong* under the old shape — `PayrollRecord.basePay` stores the computed figure. But it was not **reproducible**, which is what a labour inspection or a staff dispute actually asks for. `basePay` remains a stored snapshot of what was settled; it is now also derivable from the rate history.
+
+Open decision: for `wageType = Monthly`, a rate change mid-period needs a pro-rating rule — calendar days or working days. `Hourly` needs none.
+
+### 13. Payroll is built from two independent streams
 `PayrollRecord.netPay = basePay + commissionTotal − deductions`. Base pay comes from `AttendanceLog` (hours-based) or a fixed monthly rate. Commission comes from `CommissionEntry` records — the same mechanism for every staff role. There is no separate "performance bonus" stream; receptionist KPI bonuses flow through `CommissionEntry` like any other commission.
 
-### 13. `CommissionRule` covers all commissionable roles with a single unified structure
+### 14. `CommissionRule` covers all commissionable roles with a single unified structure
 One entity replaces two separate systems. For Doctor/Assistant the rule is scoped by `serviceCategoryId`; for Receptionist it is scoped by `eventType`. A nullable `staffId` field enables individual contract rates that override the role-level defaults. Rules are time-versioned with `effectiveFrom`, and each `CommissionEntry` locks in the rule at the time the event occurred — historical payroll is never retroactively changed.
 
-### 14. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
+### 15. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
 It is a bridge between `StaffProfile` and `PatientProfile` that records *what happened* (which receptionist brought in which patient). Commission amounts live in `CommissionEntry`, not here. This separation keeps the event record clean and auditable independently of payroll configuration. The manager can see "receptionist A registered 12 new patients this month" separately from "how much did we pay her for that."
 
-### 15. No staff member earns commission on their own treatment
+### 16. No staff member earns commission on their own treatment
 Staff are welcome to be treated at the clinic — the rule is only about who gets paid. A `CommissionEntry` may not be created where the credited staff member resolves to the same `User` as the patient on that procedure's `TreatmentPlan`. It applies to the doctor and the assistant alike.
 
 If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient. Without this rule, consolidating staff and patients onto one `User` row would quietly let a doctor bill the clinic for treating themselves.
 
-### 16. `CommissionEntry` uses `sourceType` to support two trigger paths
+### 17. `CommissionEntry` uses `sourceType` to support two trigger paths
 - `ProcedureCompleted`: created when a `TreatmentProcedure` moves to Completed. Two entries are written — one for the doctor, one for the assistant.
 - `ReceptionistEvent`: created immediately when a `ReceptionistPerformanceLog` record is written.
 
 In both cases the commission base value (`commissionBase`) is snapshotted at creation time so the manager's payroll review always shows the exact calculation, even if prices or rules change later.
 
-### 17. Commission dashboard is Manager-only
+### 18. Commission dashboard is Manager-only
 `CommissionRule`, `CommissionEntry`, `PayrollAdjustment`, and the full `PayrollRecord` breakdown are visible only to the Manager role. Staff see only their own net pay on their payslip — not the commission rates, individual commission entries, or adjustment reasons. This is enforced at the API permission layer, not the data model.
 
-### 18. Manual payroll adjustments are immutable once payroll is finalized
+### 19. Manual payroll adjustments are immutable once payroll is finalized
 `PayrollAdjustment` records in `Pending` status can be edited or deleted by the manager before payroll is approved. Once a payroll is finalized (`status = Approved`), all linked adjustments become `IncludedInPayroll` and are locked. Any subsequent correction requires a new offsetting adjustment in the next payroll period — there is no in-place editing of settled records. This preserves a clean audit trail for disputes or accounting review.
 
 The `direction` field (Credit / Debit) with a mandatory `reason` field means every non-system adjustment is traceable to a manager decision and a written business justification. Typical debit scenarios: patient refund caused by a procedure error (link `relatedInvoiceId`), commission clawback on a cancelled treatment (link `relatedCommissionEntryId`). Typical credit scenarios: discretionary end-of-year bonus, short-notice shift coverage.

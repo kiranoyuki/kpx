@@ -362,9 +362,9 @@
   <header class="mast">
     <div class="eyebrow">KPX · Dental Clinic Management</div>
     <h1>Entity Map</h1>
-    <p class="deck">The data model behind KPX — 29 entities across seven domains, drawn as the four mechanisms that actually carry the clinic: a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
+    <p class="deck">The data model behind KPX — 30 entities across seven domains, drawn as the five mechanisms that actually carry the clinic: a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
     <div class="stats">
-      <div class="stat"><b>29</b><span>Entities</span></div>
+      <div class="stat"><b>30</b><span>Entities</span></div>
       <div class="stat"><b>7</b><span>Domains</span></div>
       <div class="stat"><b>6</b><span>Roles</span></div>
       <div class="stat"><b>5</b><span>Mechanisms</span></div>
@@ -785,7 +785,7 @@
   <!-- ============ ENTITY INDEX ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">06</span><h2>Complete entity index</h2></div>
-    <p class="sec-lede">All 29 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
+    <p class="sec-lede">All 30 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
 
     <div class="domain clinical">
       <div class="domain-head"><h3>Identity &amp; Access</h3><span class="domain-count">3 entities</span></div>
@@ -835,13 +835,12 @@
           <ul class="fk">
             <li>join_date, end_date</li>
             <li>specialty, license_number</li>
-            <li>wage_type, hourly_rate</li>
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums">
             <span class="enum"><b>employment_status</b> Intern &middot; Active &middot; OnLeave &middot; Departed</span>
-            <span class="enum"><b>wage_type</b> Monthly &middot; Hourly</span>
           </div>
+          <p style="font-size:12px"><strong>No pay fields.</strong> Rates live on <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">WageRate</code>, one row per rate ever held &mdash; a single column could only hold the current one.</p>
           <p style="font-size:12px">Employment ends <strong>here</strong>, not on <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">User</code> &mdash; so someone who quits stays an active person and may still be a patient. Departure is a state change, never a deletion.</p>
           <p style="font-size:12px"><strong>Intern</strong> is working and assignable, and reaches the staff portal: the difference from Active is <em>terms</em>, not access. The trainee wage and any reduced commission are expressed with existing fields.</p>
         </div>
@@ -1089,7 +1088,7 @@
     </div>
 
     <div class="domain ops">
-      <div class="domain-head"><h3>Communication &amp; HR</h3><span class="domain-count">7 entities</span></div>
+      <div class="domain-head"><h3>Communication &amp; HR</h3><span class="domain-count">8 entities</span></div>
       <div class="cards">
         <div class="card">
           <div class="card-top"><h4>Notification</h4></div>
@@ -1101,6 +1100,20 @@
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums"><span class="enum"><b>type</b> Reminder · Page · Alert · Announcement</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>WageRate</h4><span class="lock">Manager only</span></div>
+          <p>A pay rate, versioned in time. A raise or promotion <strong>inserts</strong> a row and never edits one, so an intern&rsquo;s months keep the intern rate forever.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>staff_id <span class="arw">&rarr;</span> <span class="tgt">StaffProfile</span></li>
+            <li>set_by <span class="arw">&rarr;</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk"><li>rate, effective_from, reason</li></ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>wage_type</b> Monthly &middot; Hourly</span></div>
+          <p style="font-size:12px">Resolved per <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">AttendanceLog</code> day &mdash; the row with the greatest <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">effective_from</code> on or before it, so a promotion landing mid-period needs no special handling. Same mechanism as <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">PriceList</code>.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>AttendanceLog</h4></div>
@@ -1196,7 +1209,7 @@
 
   <footer>
     <span>KPX · Design / core-entities</span>
-    <span>29 entities · 7 domains</span>
+    <span>30 entities · 7 domains</span>
   </footer>
 
 </div>

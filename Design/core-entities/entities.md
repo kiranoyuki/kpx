@@ -93,8 +93,8 @@ Employment data only. Identity lives on `User`.
 | endDate | date | nullable; required when `employmentStatus = Departed` |
 | specialty | string | nullable; Doctor only (e.g., "Orthodontics") |
 | licenseNumber | string | nullable; Doctor only |
-| wageType | enum | Monthly, Hourly — how base pay is calculated from attendance |
-| hourlyRate | decimal | nullable; required when wageType = Hourly |
+
+> **Pay is not stored here.** `wageType` and `hourlyRate` used to live on this record; they now live on `WageRate`, one row per rate the person has ever been on. A single column could only ever hold the *current* rate, which cannot answer what someone was paid last quarter.
 
 **Employment lifecycle**
 
@@ -110,9 +110,7 @@ Employment data only. Identity lives on `User`.
 - Only `Intern` or `Active` staff may be assigned to **new** appointments, procedures or schedules, and only they reach the staff portal. An intern is working and needs the system to do the job — the distinction from `Active` is terms, not access.
 - **Ending employment never changes `User.status`.** The person stays `Active` and keeps any `PatientProfile` they have.
 
-> **Interns are paid on different terms.** The existing fields already express it: `wageType` / `hourlyRate` carry the trainee rate, and a `CommissionRule` scoped to that `staffId` carries a reduced rate — or none at all, if interns do not earn commission. No new fields are needed to state the difference.
-
-> Open question for a later pass: `hourlyRate` holds a **single** value, so promoting an intern to full-time overwrites the trainee rate, and recomputing an earlier payroll period would silently use the new one. This is the same class of problem `PriceList` solves with `effectiveFrom`. Worth versioning wages the same way before payroll runs on real money.
+> **Interns are paid on different terms.** A `WageRate` row carries the trainee rate; promotion inserts a second row rather than editing the first, so the intern months keep the intern rate forever. A `CommissionRule` scoped to that `staffId` carries any reduced commission — or none, if interns earn none.
 
 > This separation is the whole point: employment ends on `StaffProfile`, the person continues on `User`. A doctor who quits and remains a patient at the clinic loses the staff portal and keeps the patient portal, with no record surgery and no history rewritten.
 
@@ -535,6 +533,45 @@ An in-app message or page sent between staff members or to patients.
 
 ---
 
+### WageRate
+A staff member's pay rate, versioned in time. One row per rate they have ever been on; a raise or promotion **inserts** a row, never edits one.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| staffId | UUID | FK → StaffProfile |
+| wageType | enum | Monthly, Hourly |
+| rate | decimal | monthly salary, or hourly rate, per `wageType` |
+| effectiveFrom | date | the first day this rate applies |
+| reason | string | nullable — "Hired as intern", "Promoted to full-time", "Annual review 2027" |
+| setBy | UUID | FK → User (Manager) |
+
+**Resolution rule.** The rate for a given day of work is the row for that staff member with the greatest `effectiveFrom` that is on or before that day. This is the same mechanism `PriceList` uses to price a procedure by the date it was performed.
+
+**Invariants**
+- One row per (`staffId`, `effectiveFrom`) — a person cannot have two rates starting the same day.
+- Every staff member has at least one row, effective from their `joinDate`.
+- Rows are **append-only** once a payroll period covering them has been approved. Correcting a settled rate is a `PayrollAdjustment`, not an edit.
+
+**Why this is not a single column on `StaffProfile`**
+
+| Question | Single column | Versioned rows |
+|----------|---------------|----------------|
+| What is this person paid today? | yes | yes |
+| What were they paid last quarter? | **no — overwritten** | yes |
+| Can we reproduce an old payslip? | **no** | yes |
+| Promotion mid-period? | **cannot express** | resolves per day |
+
+Because the rate is resolved per `AttendanceLog` day, a promotion landing mid-period needs no special handling: days before the change find the old row, days after find the new one.
+
+> Open decision: for `wageType = Monthly`, a rate change mid-period needs a pro-rating rule — by calendar days or by working days. `Hourly` needs none, since each day resolves independently.
+
+**Relationships**
+- N–1 → `StaffProfile`
+- Read by `PayrollRecord` when computing `basePay`
+
+---
+
 ### PayrollRecord
 Monthly payroll entry for a staff member.
 
@@ -545,7 +582,7 @@ Monthly payroll entry for a staff member.
 | periodStart | date | |
 | periodEnd | date | |
 | totalHoursWorked | decimal | aggregated from `AttendanceLog` for the period |
-| basePay | decimal | fixed monthly salary OR hourlyRate × totalHoursWorked |
+| basePay | decimal | computed from `AttendanceLog` hours against the `WageRate` in effect on each day worked — so a rate change mid-period is handled day by day. Stored as a snapshot of what was actually settled, and now reproducible from the rate history |
 | commissionTotal | decimal | sum of `CommissionEntry.amount` for the period — covers all roles |
 | totalCredits | decimal | sum of `PayrollAdjustment.amount` where direction = Credit |
 | totalDebits | decimal | sum of `PayrollAdjustment.amount` where direction = Debit |
