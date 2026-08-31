@@ -7,51 +7,69 @@
 ### User
 A **person record**, not a login. Every human in the system — staff, patient, or someone who has only ever booked online — has exactly one `User` row.
 
-Three facts about a person move independently, and separating them is what makes every intake path work off one table:
+Two facts about a person move independently:
 
 | Fact | Becomes true when | Held by |
 |------|-------------------|---------|
 | We know who they are | First contact — online booking, phone, or the receptionist's questions | the row exists |
-| We have verified them | They arrive and someone checks their documents | `verifiedAt` / `verifiedBy` |
-| They can log in | Optional; may never happen | `passwordHash` |
+| We have verified them | They arrive and a staff member checks their CCCD | `verifiedAt` / `verifiedBy` |
+
+**Authentication is a third, separate layer and is deliberately not modelled yet** — see *Authentication* below.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| fullName | string | known from first contact |
-| phone | string | required — the practical dedup key before a national ID exists |
-| email | string | unique; **nullable** — a walk-in may have none |
+| fullName | string | known from first contact; also a patient identifying field |
+| phone | string | required — dedup key at booking, and a patient identifying field |
+| email | string | unique; nullable — a walk-in may have none |
 | dateOfBirth | date | nullable |
 | address | string | nullable |
-| nationalId | string | unique; **nullable** — Vietnamese CCCD, exactly 12 digits. Stored as text, never numeric: it is an identifier, not a quantity, and leading zeros are significant |
-| status | enum | Provisional, Active, Inactive |
+| nationalId | string | unique; nullable — Vietnamese CCCD, exactly 12 digits. Stored as text, never numeric: it is an identifier, not a quantity, and leading zeros are significant |
+| status | enum | Provisional, Active, Inactive — the **person's** lifecycle, never their employment |
 | verifiedAt | timestamp | nullable — when identity was checked in person |
 | verifiedBy | UUID | FK → User; nullable — which staff member checked it |
-| passwordHash | string | **nullable** — null means the person cannot log in |
 | role | enum | Manager, Doctor, Receptionist, Accountant, Assistant, Patient |
 | createdAt | timestamp | |
 
 **Invariants**
 - `status = Active` requires both `verifiedAt` and `verifiedBy` — Active means a person physically verified them.
-- `passwordHash` requires `email` — no username, no login.
 - `nationalId` is exactly 12 digits when present, and unique across everyone.
 
 **Lifecycle**
 
 | Path | What happens |
 |------|--------------|
-| Books online | Row created `Provisional`: name, phone, email. No national ID, no password. Appointment booked against it immediately. |
-| Arrives at clinic | Receptionist checks the CCCD, fills `nationalId`, stamps `verifiedAt`/`verifiedBy`, flips to `Active`, creates the `PatientProfile`. Credentials offered separately. |
-| No-shows | Stays `Provisional`. Reminder query finds them and the desk chases a reschedule. |
+| Books online | Row created `Provisional`: name, phone, email. No CCCD. **Never logs in** — receives booking confirmation and reminders by phone or email, and contacts the clinic to change anything. |
+| Arrives at clinic | Receptionist checks the CCCD, fills `nationalId`, stamps `verifiedAt`/`verifiedBy`, flips to `Active`, creates the `PatientProfile`. |
+| No-shows | Stays `Provisional`. The desk chases a reschedule by phone or email. |
 | Walks in | Created `Active` in one step, CCCD in hand. Same table, no special case. |
 
+**Authentication** *(design deferred — credential storage is out of scope for now)*
+
+There are two portals, and a person reaches them by what they **have**, not by their `role`:
+
+| Portal | Granted when |
+|--------|--------------|
+| Patient | `User.status = Active` **and** a `PatientProfile` exists |
+| Staff | `User.status = Active` **and** a `StaffProfile` exists with `employmentStatus = Active` |
+
+`role` then governs permissions *inside* the staff portal. Patients can never reach the staff portal.
+
+- **Patients use no password.** They identify with a combination of `fullName`, `phone` and `nationalId` — all fields already on this record, so patient sign-in needs no new columns. Exact required combination TBD.
+- **Staff use a username and password, or a hardware chip.** Mechanism TBD.
+- **Provisional people never authenticate at all** — they have no `nationalId` to identify against, which is consistent with reaching them only by confirmation and reminder messages.
+
+> Deriving portal access from profiles rather than `role` is what lets one person hold both: a doctor who is also a patient reaches both portals, and a **departed** doctor keeps the patient portal while losing the staff one.
+
+> Security note for the sign-in decision: a CCCD is not a secret — it appears on documents and is routinely shared with hotels and banks. Combined with name and phone it is reasonable for low-risk access, but it is worth deciding consciously how much it should unlock before it gates clinical records.
+
 **Relationships**
-- 0–1 → `StaffProfile` (employment data, if staff)
+- 0–1 → `StaffProfile` (employment, if staff)
 - 0–1 → `PatientProfile` (care relationship, created on arrival)
 - 1–N → `Appointment` (a Provisional person can hold a booking)
 - 1–N → `Notification` (sent or received)
 
-> `role` governs system access; having a `PatientProfile` governs whether they receive care. They are orthogonal — a doctor who is also a patient keeps `role = Doctor` and simply has both profiles.
+> A person may hold **both** profiles. `role` governs system access; having a `PatientProfile` governs whether they receive care. They are orthogonal — a doctor who is also a patient keeps `role = Doctor` and simply has both.
 
 ---
 
@@ -63,10 +81,21 @@ Employment data only. Identity lives on `User`.
 | id | UUID | PK |
 | userId | UUID | FK → User; unique |
 | joinDate | date | |
+| employmentStatus | enum | **Active, OnLeave, Departed** — whether they currently work at the clinic |
+| endDate | date | nullable; required when `employmentStatus = Departed` |
 | specialty | string | nullable; Doctor only (e.g., "Orthodontics") |
 | licenseNumber | string | nullable; Doctor only |
 | wageType | enum | Monthly, Hourly — how base pay is calculated from attendance |
 | hourlyRate | decimal | nullable; required when wageType = Hourly |
+
+**Invariants**
+- `employmentStatus = Departed` requires `endDate`; `endDate` set requires `employmentStatus = Departed`.
+- Only `employmentStatus = Active` staff may be assigned to **new** appointments, procedures or schedules. `OnLeave` covers maternity, sabbatical or long illness — not bookable, but not gone.
+- **Ending employment never changes `User.status`.** The person stays `Active` and keeps any `PatientProfile` they have.
+
+> This separation is the whole point: employment ends on `StaffProfile`, the person continues on `User`. A doctor who quits and remains a patient at the clinic loses the staff portal and keeps the patient portal, with no record surgery and no history rewritten.
+
+**Historical records are never rewritten on departure.** Past `TreatmentPlan`, `Appointment`, `CommissionEntry` and `PayrollRecord` rows keep pointing at the departed staff member — that is what makes last year's reports still correct. Departure is a state change, never a deletion.
 
 **Relationships**
 - N–1 → `User`
@@ -76,7 +105,7 @@ Employment data only. Identity lives on `User`.
 ---
 
 ### PatientProfile
-The **care relationship**. Created on arrival — never at online-booking time. Its existence is what distinguishes a patient from a provisional booker. Identity lives on `User`.
+The **care relationship**. Created on arrival — never at online-booking time. Its existence is what distinguishes a patient from a provisional booker, and what grants the patient portal. Identity lives on `User`.
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -93,6 +122,8 @@ The **care relationship**. Created on arrival — never at online-booking time. 
 - 1–N → `TreatmentPlan`, `PatientMedia`
 
 > A `TreatmentPlan` and an `Invoice` reference `PatientProfile`, not `User`: you cannot carry a treatment plan or an invoice until you have arrived and become a patient. Only `Appointment` accepts a provisional person.
+
+> A staff member may hold a `PatientProfile` and receive care at their own clinic. When they do, no one earns commission on their treatment — see `CommissionEntry`.
 
 ---
 
@@ -567,6 +598,12 @@ A single earned commission for any commissionable staff member. One unified reco
 | status | enum | Pending, IncludedInPayroll |
 | payrollRecordId | UUID | FK → PayrollRecord; nullable — set when payroll is finalized |
 | earnedAt | timestamp | when the trigger event occurred |
+
+**Invariants**
+- Exactly the FK its `sourceType` names is set; the other is null.
+- **No staff member earns commission on their own treatment.** An entry may not be created where the `staffId` resolves to the same `User` as the patient on the procedure's `TreatmentPlan`. This applies to the doctor and the assistant alike.
+
+> Staff are permitted to be treated at the clinic — the rule is only about payment. If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient.
 
 ---
 

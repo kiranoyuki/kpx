@@ -414,7 +414,7 @@
           <rect class="box" x="280" y="60" width="220" height="70" rx="3"/>
           <text class="n2" x="390" y="84" text-anchor="middle">User · Provisional</text>
           <text class="sub" x="390" y="101" text-anchor="middle">name + phone + email</text>
-          <text class="sub" x="390" y="116" text-anchor="middle">no CCCD · no password · no profile</text>
+          <text class="sub" x="390" y="116" text-anchor="middle">no CCCD · no profile · never signs in</text>
 
           <rect class="box-c" x="590" y="175" width="220" height="70" rx="3"/>
           <text class="n2" x="700" y="199" text-anchor="middle">User · Active</text>
@@ -425,9 +425,10 @@
           <text class="n2" x="950" y="107" text-anchor="middle">PatientProfile</text>
           <text class="sub" x="950" y="123" text-anchor="middle">care begins</text>
 
-          <rect class="box" x="870" y="290" width="160" height="52" rx="3"/>
-          <text class="n2" x="950" y="312" text-anchor="middle">Credentials</text>
-          <text class="sub" x="950" y="328" text-anchor="middle">optional</text>
+          <rect class="box-c" x="870" y="288" width="160" height="58" rx="3"/>
+          <text class="n2" x="950" y="308" text-anchor="middle">Patient portal</text>
+          <text class="sub" x="950" y="324" text-anchor="middle">name + phone + CCCD</text>
+          <text class="sub" x="950" y="337" text-anchor="middle">no password</text>
 
           <line class="ln" x1="210" y1="93" x2="273" y2="93" marker-end="url(#a0)"/>
           <text class="lbl" x="241" y="85" text-anchor="middle">creates</text>
@@ -442,15 +443,14 @@
           <path class="ln-c" d="M810 196 C 840 196, 845 126, 863 116" marker-end="url(#a0c)"/>
           <text class="lbl-em" x="818" y="158" text-anchor="start">unlocks</text>
 
-          <path class="ln-d" d="M810 226 C 840 226, 845 300, 863 312" marker-end="url(#a0)"/>
-          <text class="lbl" x="818" y="272" text-anchor="start">may never</text>
-          <text class="lbl" x="818" y="284" text-anchor="start">happen</text>
+          <path class="ln-c" d="M810 226 C 840 226, 845 300, 863 312" marker-end="url(#a0c)"/>
+          <text class="lbl-em" x="818" y="272" text-anchor="start">signs in</text>
 
           <path class="ln-d" d="M335 132 C 315 210, 475 210, 455 132" marker-end="url(#a0)"/>
           <text class="lbl" x="395" y="228" text-anchor="middle">NoShow &#8594; stays Provisional &#8594; reschedule chase</text>
         </svg>
       </div>
-      <figcaption><b>One table, four entry paths.</b> The teal boxes are verified states. Note what the dashed self-loop means: a no-show never becomes a patient, never gets a <code>PatientProfile</code>, and keeps no CCCD &mdash; but still holds a bookable row, which is why the appointment can point at them from the moment they book.</figcaption>
+      <figcaption><b>One table, four entry paths.</b> The teal boxes are verified states. Note what the dashed self-loop means: a no-show never becomes a patient, never gets a <code>PatientProfile</code>, and keeps no CCCD, and never signs in &mdash; the clinic reaches them by confirmation and reminder messages instead. They still hold a bookable row, which is why the appointment can point at them from the moment they book.</figcaption>
     </figure>
   </section>
 
@@ -812,21 +812,32 @@
           <div class="rel-label">Invariants</div>
           <ul class="fk">
             <li>Active <span class="arw">&rArr;</span> <span class="tgt">verified_at + verified_by</span></li>
-            <li>password_hash <span class="arw">&rArr;</span> <span class="tgt">email</span></li>
+            <li>national_id <span class="arw">&rArr;</span> <span class="tgt">12 digits, unique</span></li>
           </ul>
+          <div class="rel-label">Portals &mdash; granted by profile, not role</div>
+          <ul class="fk">
+            <li>PatientProfile <span class="arw">&rArr;</span> <span class="tgt">patient portal</span></li>
+            <li>StaffProfile Active <span class="arw">&rArr;</span> <span class="tgt">staff portal</span></li>
+          </ul>
+          <p style="font-size:12px">Authentication itself is <strong>deferred</strong>. Patients will identify with name + phone + CCCD &mdash; all already here, so sign-in needs no new columns.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>StaffProfile</h4><span class="lock">Employment</span></div>
-          <p>Employment data only. No name, phone or address &mdash; those live on User.</p>
+          <p>Employment data only &mdash; no name, phone or address; those live on User. <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">employment_status</code> is what gates the staff portal.</p>
           <div class="rel-label">Foreign keys</div>
           <ul class="fk"><li>user_id <span class="arw">&rarr;</span> <span class="tgt">User</span> <span class="nul">unique</span></li></ul>
           <div class="rel-label">Fields</div>
           <ul class="fk">
-            <li>join_date, specialty, license_number</li>
+            <li>join_date, end_date</li>
+            <li>specialty, license_number</li>
             <li>wage_type, hourly_rate</li>
           </ul>
           <div class="rel-label">Enums</div>
-          <div class="enums"><span class="enum"><b>wage_type</b> Monthly &middot; Hourly</span></div>
+          <div class="enums">
+            <span class="enum"><b>employment_status</b> Active &middot; OnLeave &middot; Departed</span>
+            <span class="enum"><b>wage_type</b> Monthly &middot; Hourly</span>
+          </div>
+          <p style="font-size:12px">Employment ends <strong>here</strong>, not on <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">User</code> &mdash; so someone who quits stays an active person and may still be a patient. Departure is a state change, never a deletion.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>PatientProfile</h4><span class="lock">Care</span></div>
@@ -1138,6 +1149,8 @@
             <span class="enum"><b>sourceType</b> ProcedureCompleted · ReceptionistEvent</span>
             <span class="enum"><b>status</b> Pending · IncludedInPayroll</span>
           </div>
+          <div class="rel-label">Invariant</div>
+          <p style="font-size:12px">No staff member earns commission on <strong>their own</strong> treatment &mdash; an entry cannot be created where the credited staff resolves to the same User as the patient on that plan. Doctor and assistant alike.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>PayrollAdjustment</h4><span class="lock">Manager only</span></div>
