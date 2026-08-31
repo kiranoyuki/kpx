@@ -1,0 +1,1183 @@
+<title>KPX Entity Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600;700&display=swap">
+<style>
+  :root {
+    --ground: #F5F7F6;
+    --surface: #FFFFFF;
+    --surface-2: #EAEFEE;
+    --ink: #14232A;
+    --ink-2: #3C525B;
+    --slate: #64787F;
+    --rule: #D8E0DE;
+    --rule-2: #C3CFCC;
+    --clinical: #0D7A85;
+    --clinical-soft: #E0EFF0;
+    --ledger: #9A5F16;
+    --ledger-soft: #F5EADA;
+    --shadow: 0 1px 2px rgba(20, 35, 42, .05), 0 6px 18px -10px rgba(20, 35, 42, .18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0D161B;
+      --surface: #142129;
+      --surface-2: #1A2B33;
+      --ink: #E7EEED;
+      --ink-2: #AEC0C5;
+      --slate: #8CA2A9;
+      --rule: #26373E;
+      --rule-2: #33474F;
+      --clinical: #4CBDC5;
+      --clinical-soft: #0E3138;
+      --ledger: #DDA463;
+      --ledger-soft: #33260F;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px -10px rgba(0, 0, 0, .6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0D161B;
+    --surface: #142129;
+    --surface-2: #1A2B33;
+    --ink: #E7EEED;
+    --ink-2: #AEC0C5;
+    --slate: #8CA2A9;
+    --rule: #26373E;
+    --rule-2: #33474F;
+    --clinical: #4CBDC5;
+    --clinical-soft: #0E3138;
+    --ledger: #DDA463;
+    --ledger-soft: #33260F;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 6px 18px -10px rgba(0, 0, 0, .6);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  /* ---------- masthead ---------- */
+  .mast {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 64px 0 30px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--clinical);
+  }
+  h1 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(2.1rem, 5vw, 3.1rem);
+    line-height: 1.08;
+    letter-spacing: -.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .deck {
+    max-width: 64ch;
+    font-size: 1.02rem;
+    color: var(--ink-2);
+    margin: 0;
+  }
+  .stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    margin-top: 10px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--surface);
+    width: fit-content;
+  }
+  .stat {
+    padding: 12px 22px;
+    border-right: 1px solid var(--rule);
+  }
+  .stat:last-child { border-right: 0; }
+  .stat b {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1.4rem;
+    font-weight: 600;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--slate);
+  }
+
+  /* ---------- legend ---------- */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 26px;
+    padding: 20px 0 0;
+    margin-top: 30px;
+  }
+  .key {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    max-width: 34ch;
+  }
+  .swatch {
+    width: 13px;
+    height: 13px;
+    border-radius: 2px;
+    flex: none;
+    margin-top: 4px;
+  }
+  .swatch.c { background: var(--clinical); }
+  .swatch.l { background: var(--ledger); }
+  .key p { margin: 0; font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
+  .key strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 64px; }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    margin-bottom: 6px;
+  }
+  .sec-num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--slate);
+    font-variant-numeric: tabular-nums;
+  }
+  h2 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: -.012em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sec-lede {
+    max-width: 68ch;
+    color: var(--ink-2);
+    margin: 0 0 26px;
+    font-size: .97rem;
+  }
+
+  /* ---------- figures ---------- */
+  figure {
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .fig-scroll { overflow-x: auto; padding: 26px 26px 10px; }
+  figure svg { display: block; width: 100%; min-width: 720px; height: auto; color: var(--rule-2); }
+  figcaption {
+    border-top: 1px solid var(--rule);
+    padding: 13px 26px;
+    font-size: 13px;
+    color: var(--slate);
+    background: var(--surface-2);
+  }
+  figcaption b { color: var(--ink-2); font-weight: 600; }
+
+  /* svg text roles */
+  .n  { font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 500; fill: var(--ink); }
+  .n2 { font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 500; fill: var(--ink); }
+  .sub{ font-family: "IBM Plex Sans", sans-serif; font-size: 10.5px; fill: var(--slate); }
+  .lbl{ font-family: "IBM Plex Mono", monospace; font-size: 10.5px; fill: var(--slate); }
+  .lbl-em { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 500; fill: var(--clinical); }
+  .lbl-lg { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 500; fill: var(--ledger); }
+  .box   { fill: var(--surface-2); stroke: var(--rule-2); stroke-width: 1; }
+  .box-c { fill: var(--clinical-soft); stroke: var(--clinical); stroke-width: 1.4; }
+  .box-l { fill: var(--ledger-soft); stroke: var(--ledger); stroke-width: 1.4; }
+  .ln    { stroke: var(--rule-2); stroke-width: 1.4; fill: none; }
+  .ln-c  { stroke: var(--clinical); stroke-width: 1.6; fill: none; }
+  .ln-l  { stroke: var(--ledger); stroke-width: 1.6; fill: none; }
+  .ln-d  { stroke: var(--rule-2); stroke-width: 1.4; fill: none; stroke-dasharray: 4 4; }
+  .tag   { font-family: "IBM Plex Mono", monospace; font-size: 9.5px; letter-spacing: .08em; fill: var(--slate); }
+
+  /* ---------- entity index ---------- */
+  .domain { margin-top: 40px; }
+  .domain-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding-bottom: 9px;
+    border-bottom: 2px solid var(--rule);
+    margin-bottom: 20px;
+  }
+  .domain.clinical .domain-head { border-bottom-color: var(--clinical); }
+  .domain.ops .domain-head { border-bottom-color: var(--ledger); }
+  .domain-head h3 {
+    font-family: "IBM Plex Sans", sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+    margin: 0;
+  }
+  .domain-count {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--slate);
+    font-variant-numeric: tabular-nums;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-2);
+    border-radius: 3px;
+    padding: 14px 16px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .domain.clinical .card { border-left-color: var(--clinical); }
+  .domain.ops .card { border-left-color: var(--ledger); }
+  .card-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card h4 {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -.01em;
+  }
+  .lock {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ledger);
+    background: var(--ledger-soft);
+    border: 1px solid var(--ledger);
+    border-radius: 2px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+  .card p { margin: 0; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+  .rel-label {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 9.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--slate);
+    padding-top: 3px;
+    border-top: 1px dotted var(--rule-2);
+  }
+  ul.fk { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  ul.fk li {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--ink-2);
+    line-height: 1.45;
+  }
+  ul.fk li .arw { color: var(--slate); }
+  ul.fk li .tgt { color: var(--ink); }
+  ul.fk li .nul { color: var(--slate); font-size: 10px; }
+  .enums { display: flex; flex-wrap: wrap; gap: 4px; }
+  .enum {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1px 6px;
+    color: var(--ink-2);
+  }
+  .enum b { color: var(--ink); font-weight: 600; }
+
+  .note {
+    margin-top: 40px;
+    padding: 18px 20px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--clinical);
+    border-radius: 3px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    max-width: 78ch;
+  }
+  .note b { color: var(--ink); font-weight: 600; }
+  .note code {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    background: var(--surface-2);
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    color: var(--slate);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 18px 64px; }
+    .mast { padding-top: 44px; }
+    .stat { padding: 10px 16px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <div class="eyebrow">KPX · Dental Clinic Management</div>
+    <h1>Entity Map</h1>
+    <p class="deck">The data model behind KPX — 29 entities across seven domains, drawn as the four mechanisms that actually carry the clinic: a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
+    <div class="stats">
+      <div class="stat"><b>29</b><span>Entities</span></div>
+      <div class="stat"><b>7</b><span>Domains</span></div>
+      <div class="stat"><b>6</b><span>Roles</span></div>
+      <div class="stat"><b>5</b><span>Mechanisms</span></div>
+    </div>
+    <div class="legend">
+      <div class="key">
+        <div class="swatch c"></div>
+        <p><strong>Clinical &amp; revenue</strong> — the patient's path through the clinic: care delivered, then billed and collected.</p>
+      </div>
+      <div class="key">
+        <div class="swatch l"></div>
+        <p><strong>Operations &amp; payroll</strong> — the clinic's internal side: staff time, commission, and money paid out. Manager-only.</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ 1. IDENTITY LIFECYCLE ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>How a stranger becomes a patient</h2></div>
+    <p class="sec-lede">Before anyone generates revenue they have to become a known, verified person. Three facts move independently &mdash; we know who they are, we have verified them, they can log in &mdash; and keeping them separate is what lets every intake path run through one table.</p>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1060 420" role="img" aria-label="An online booking creates a Provisional person with no national ID and no password; arriving at the clinic verifies them into Active, which creates the patient profile and optionally issues credentials. A walk-in is created Active in one step. A no-show stays Provisional and is chased for a reschedule.">
+          <defs>
+            <marker id="a0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
+            </marker>
+            <marker id="a0c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--clinical)"/>
+            </marker>
+          </defs>
+
+          <text class="tag" x="40" y="34">ENTRY</text>
+          <text class="tag" x="280" y="34">UNVERIFIED</text>
+          <text class="tag" x="590" y="150">VERIFIED</text>
+          <text class="tag" x="870" y="60">WHAT IT UNLOCKS</text>
+
+          <rect class="box" x="40" y="70" width="170" height="46" rx="3"/>
+          <text class="n2" x="125" y="91" text-anchor="middle">Books online</text>
+          <text class="sub" x="125" y="106" text-anchor="middle">self-service</text>
+
+          <rect class="box" x="40" y="300" width="170" height="46" rx="3"/>
+          <text class="n2" x="125" y="321" text-anchor="middle">Walks in / phones</text>
+          <text class="sub" x="125" y="336" text-anchor="middle">receptionist takes details</text>
+
+          <rect class="box" x="280" y="60" width="220" height="70" rx="3"/>
+          <text class="n2" x="390" y="84" text-anchor="middle">User · Provisional</text>
+          <text class="sub" x="390" y="101" text-anchor="middle">name + phone + email</text>
+          <text class="sub" x="390" y="116" text-anchor="middle">no CCCD · no password · no profile</text>
+
+          <rect class="box-c" x="590" y="175" width="220" height="70" rx="3"/>
+          <text class="n2" x="700" y="199" text-anchor="middle">User · Active</text>
+          <text class="sub" x="700" y="216" text-anchor="middle">national_id filled</text>
+          <text class="sub" x="700" y="231" text-anchor="middle">verified_at · verified_by stamped</text>
+
+          <rect class="box-c" x="870" y="85" width="160" height="52" rx="3"/>
+          <text class="n2" x="950" y="107" text-anchor="middle">PatientProfile</text>
+          <text class="sub" x="950" y="123" text-anchor="middle">care begins</text>
+
+          <rect class="box" x="870" y="290" width="160" height="52" rx="3"/>
+          <text class="n2" x="950" y="312" text-anchor="middle">Credentials</text>
+          <text class="sub" x="950" y="328" text-anchor="middle">optional</text>
+
+          <line class="ln" x1="210" y1="93" x2="273" y2="93" marker-end="url(#a0)"/>
+          <text class="lbl" x="241" y="85" text-anchor="middle">creates</text>
+
+          <path class="ln-c" d="M500 108 C 545 108, 550 185, 583 195" marker-end="url(#a0c)"/>
+          <text class="lbl-em" x="512" y="150" text-anchor="start">arrives ·</text>
+          <text class="lbl-em" x="512" y="163" text-anchor="start">CCCD checked</text>
+
+          <path class="ln-c" d="M210 320 C 380 320, 480 250, 583 227" marker-end="url(#a0c)"/>
+          <text class="lbl-em" x="330" y="300" text-anchor="start">created Active in one step</text>
+
+          <path class="ln-c" d="M810 196 C 840 196, 845 126, 863 116" marker-end="url(#a0c)"/>
+          <text class="lbl-em" x="818" y="158" text-anchor="start">unlocks</text>
+
+          <path class="ln-d" d="M810 226 C 840 226, 845 300, 863 312" marker-end="url(#a0)"/>
+          <text class="lbl" x="818" y="272" text-anchor="start">may never</text>
+          <text class="lbl" x="818" y="284" text-anchor="start">happen</text>
+
+          <path class="ln-d" d="M335 132 C 315 210, 475 210, 455 132" marker-end="url(#a0)"/>
+          <text class="lbl" x="395" y="228" text-anchor="middle">NoShow &#8594; stays Provisional &#8594; reschedule chase</text>
+        </svg>
+      </div>
+      <figcaption><b>One table, four entry paths.</b> The teal boxes are verified states. Note what the dashed self-loop means: a no-show never becomes a patient, never gets a <code>PatientProfile</code>, and keeps no CCCD &mdash; but still holds a bookable row, which is why the appointment can point at them from the moment they book.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 2. CLINICAL SPINE ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>How a patient becomes revenue</h2></div>
+    <p class="sec-lede">The operational spine. Every clinical and billing entity hangs off this path, and <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">TreatmentPlan</code> is the anchor — a patient may run several plans over time, and each one carries its own procedures, discounts and invoice.</p>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1060 430" role="img" aria-label="A person books an appointment; on arrival they become a patient and a treatment plan opens; the plan breaks into procedures priced from the service catalog, which are billed on an invoice and settled by payments.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
+            </marker>
+            <marker id="a1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--clinical)"/>
+            </marker>
+          </defs>
+
+          <!-- row 1 -->
+          <rect class="box-c" x="50"  y="80" width="180" height="54" rx="3"/>
+          <text class="n" x="140" y="103" text-anchor="middle">User</text>
+          <text class="sub" x="140" y="120" text-anchor="middle">person record</text>
+
+          <rect class="box-c" x="320" y="80" width="180" height="54" rx="3"/>
+          <text class="n" x="410" y="103" text-anchor="middle">Appointment</text>
+          <text class="sub" x="410" y="120" text-anchor="middle">patient × doctor × slot</text>
+
+          <rect class="box-c" x="590" y="80" width="180" height="54" rx="3"/>
+          <text class="n" x="680" y="103" text-anchor="middle">TreatmentPlan</text>
+          <text class="sub" x="680" y="120" text-anchor="middle">clinical anchor</text>
+
+          <!-- row 1 arrows -->
+          <line class="ln-c" x1="230" y1="107" x2="313" y2="107" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="271" y="99" text-anchor="middle">books</text>
+          <line class="ln-c" x1="500" y1="107" x2="583" y2="107" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="541" y="93" text-anchor="middle">opens</text>
+          <text class="lbl" x="541" y="128" text-anchor="middle">on arrival:</text>
+          <text class="lbl" x="541" y="140" text-anchor="middle">PatientProfile created</text>
+
+          <!-- down connector -->
+          <line class="ln-c" x1="680" y1="134" x2="680" y2="283" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="692" y="200" text-anchor="start">breaks into</text>
+          <text class="lbl-em" x="692" y="214" text-anchor="start">ordered steps</text>
+
+          <!-- row 2 (right to left) -->
+          <rect class="box-c" x="590" y="290" width="180" height="54" rx="3"/>
+          <text class="n2" x="680" y="313" text-anchor="middle">TreatmentProcedure</text>
+          <text class="sub" x="680" y="330" text-anchor="middle">one session / step</text>
+
+          <rect class="box-c" x="320" y="290" width="180" height="54" rx="3"/>
+          <text class="n" x="410" y="313" text-anchor="middle">Invoice</text>
+          <text class="sub" x="410" y="330" text-anchor="middle">one per plan</text>
+
+          <rect class="box-c" x="50"  y="290" width="180" height="54" rx="3"/>
+          <text class="n" x="140" y="313" text-anchor="middle">Payment</text>
+          <text class="sub" x="140" y="330" text-anchor="middle">many per invoice</text>
+
+          <line class="ln-c" x1="590" y1="317" x2="507" y2="317" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="548" y="309" text-anchor="middle">billed on</text>
+          <line class="ln-c" x1="320" y1="317" x2="237" y2="317" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="278" y="309" text-anchor="middle">settled by</text>
+
+          <!-- catalog feeds -->
+          <rect class="box" x="850" y="290" width="170" height="54" rx="3"/>
+          <text class="n2" x="935" y="313" text-anchor="middle">ServiceCategory</text>
+          <text class="sub" x="935" y="330" text-anchor="middle">isSpecial flag</text>
+          <line class="ln" x1="850" y1="317" x2="777" y2="317" marker-end="url(#a1)"/>
+          <text class="lbl" x="813" y="309" text-anchor="middle">types</text>
+
+          <rect class="box" x="320" y="185" width="180" height="48" rx="3"/>
+          <text class="n2" x="410" y="205" text-anchor="middle">PriceList</text>
+          <text class="sub" x="410" y="221" text-anchor="middle">versioned · effectiveFrom</text>
+          <line class="ln" x1="410" y1="233" x2="410" y2="283" marker-end="url(#a1)"/>
+          <text class="lbl" x="422" y="262" text-anchor="start">unit price at date</text>
+
+          <path class="ln-d" d="M850 305 C 700 262, 560 250, 502 214"/>
+          <text class="lbl" x="700" y="248" text-anchor="middle">priced by category</text>
+
+          <!-- outbound -->
+          <rect class="box-l" x="850" y="380" width="170" height="40" rx="3"/>
+          <text class="n2" x="935" y="405" text-anchor="middle">CommissionEntry</text>
+          <line class="ln-l" x1="770" y1="336" x2="845" y2="382"/>
+          <text class="lbl-lg" x="762" y="374" text-anchor="start">on complete</text>
+
+          <text class="tag" x="50" y="46">CLINICAL SPINE</text>
+          <line class="ln" x1="50" y1="56" x2="1020" y2="56" stroke-dasharray="2 4"/>
+        </svg>
+      </div>
+      <figcaption><b>The revenue path.</b> Serpentine: left-to-right along the top as care is planned, then right-to-left along the bottom as it is delivered and billed. The dashed line marks a lookup rather than a flow — the catalog supplies the price, it is not part of the patient's journey.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 2. COMMISSION ENGINE ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>How work becomes pay</h2></div>
+    <p class="sec-lede">Two very different events — a doctor finishing a procedure and a receptionist bringing a patient back — converge on a single <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">CommissionEntry</code> record. That convergence is the reason payroll has one calculation path instead of two.</p>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1060 470" role="img" aria-label="Completed procedures and receptionist performance events both create commission entries, priced by a commission rule; entries plus attendance hours and manager adjustments settle into a payroll record.">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
+            </marker>
+            <marker id="a2l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--ledger)"/>
+            </marker>
+          </defs>
+
+          <!-- governing rule -->
+          <rect class="box-l" x="380" y="40" width="220" height="54" rx="3"/>
+          <text class="n2" x="490" y="63" text-anchor="middle">CommissionRule</text>
+          <text class="sub" x="490" y="80" text-anchor="middle">role · scope · effectiveFrom</text>
+
+          <!-- adjustments -->
+          <rect class="box-l" x="790" y="40" width="220" height="54" rx="3"/>
+          <text class="n2" x="900" y="63" text-anchor="middle">PayrollAdjustment</text>
+          <text class="sub" x="900" y="80" text-anchor="middle">credit / debit · reason required</text>
+
+          <!-- triggers -->
+          <rect class="box-c" x="40" y="160" width="230" height="60" rx="3"/>
+          <text class="n2" x="155" y="184" text-anchor="middle">TreatmentProcedure</text>
+          <text class="sub" x="155" y="201" text-anchor="middle">status → Completed</text>
+
+          <rect class="box-c" x="40" y="292" width="230" height="60" rx="3"/>
+          <text class="n2" x="155" y="311" text-anchor="middle">ReceptionistPerf.</text>
+          <text class="n2" x="155" y="325" text-anchor="middle">Log</text>
+          <text class="sub" x="155" y="342" text-anchor="middle">KPI event written</text>
+
+          <!-- convergence -->
+          <rect class="box-l" x="400" y="215" width="200" height="76" rx="3"/>
+          <text class="n2" x="500" y="243" text-anchor="middle">CommissionEntry</text>
+          <text class="sub" x="500" y="260" text-anchor="middle">sourceType decides</text>
+          <text class="sub" x="500" y="275" text-anchor="middle">which FK is set</text>
+
+          <!-- payroll -->
+          <rect class="box-l" x="790" y="215" width="220" height="76" rx="3"/>
+          <text class="n2" x="900" y="243" text-anchor="middle">PayrollRecord</text>
+          <text class="sub" x="900" y="260" text-anchor="middle">basePay + commission</text>
+          <text class="sub" x="900" y="275" text-anchor="middle">+ credits − debits</text>
+
+          <!-- attendance -->
+          <rect class="box-l" x="400" y="380" width="200" height="54" rx="3"/>
+          <text class="n2" x="500" y="403" text-anchor="middle">AttendanceLog</text>
+          <text class="sub" x="500" y="420" text-anchor="middle">clock-in / clock-out</text>
+
+          <!-- arrows in -->
+          <path class="ln-c" d="M270 190 C 330 190, 340 232, 393 238" marker-end="url(#a2l)"/>
+          <text class="lbl" x="300" y="176" text-anchor="start">ProcedureCompleted ×2</text>
+          <text class="lbl" x="300" y="190" text-anchor="start">(doctor + assistant)</text>
+
+          <path class="ln-c" d="M270 322 C 330 322, 340 278, 393 270" marker-end="url(#a2l)"/>
+          <text class="lbl" x="300" y="316" text-anchor="start">ReceptionistEvent</text>
+
+          <!-- rule down -->
+          <line class="ln-l" x1="500" y1="94" x2="500" y2="208" marker-end="url(#a2l)"/>
+          <text class="lbl-lg" x="512" y="145" text-anchor="start">rate locked in</text>
+          <text class="lbl-lg" x="512" y="159" text-anchor="start">at earnedAt</text>
+
+          <!-- entry to payroll -->
+          <line class="ln-l" x1="600" y1="253" x2="783" y2="253" marker-end="url(#a2l)"/>
+          <text class="lbl-lg" x="691" y="245" text-anchor="middle">settles into</text>
+
+          <!-- adjustment down -->
+          <line class="ln-l" x1="900" y1="94" x2="900" y2="208" marker-end="url(#a2l)"/>
+          <text class="lbl-lg" x="912" y="152" text-anchor="start">manager override</text>
+
+          <!-- attendance up -->
+          <path class="ln-l" d="M600 400 C 720 400, 760 330, 830 297" marker-end="url(#a2l)"/>
+          <text class="lbl-lg" x="640" y="382" text-anchor="start">hours → basePay</text>
+
+          <!-- clawback loop -->
+          <path class="ln-d" d="M880 208 C 850 150, 620 150, 545 208"/>
+          <text class="lbl" x="712" y="145" text-anchor="middle">clawback links the reversed entry</text>
+
+          <text class="tag" x="40" y="24">TRIGGERS</text>
+          <text class="tag" x="400" y="24">RATE + LEDGER</text>
+          <text class="tag" x="790" y="24">SETTLEMENT</text>
+        </svg>
+      </div>
+      <figcaption><b>One ledger, two doors.</b> <code>sourceType</code> is what makes the convergence work — it says which of the two nullable foreign keys is populated. The dashed line is the correction path: a debit adjustment can point back at the exact commission entry it reverses.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 3. APPROVAL GATES ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>What needs the manager</h2></div>
+    <p class="sec-lede">Two doctor-initiated requests route through the same approval gate but land in different places. A manager-set promotion bypasses the gate entirely — that contrast is the whole point of separating the two discount paths.</p>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1060 400" role="img" aria-label="A treatment plan can spawn a special procedure proposal or a discount proposal, both reviewed by the manager; approval activates the plan or applies a discount to the invoice, while manager-set promotions reach the invoice without review.">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
+            </marker>
+            <marker id="a3c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--clinical)"/>
+            </marker>
+            <marker id="a3l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--ledger)"/>
+            </marker>
+          </defs>
+
+          <rect class="box-c" x="40" y="150" width="180" height="60" rx="3"/>
+          <text class="n" x="130" y="174" text-anchor="middle">TreatmentPlan</text>
+          <text class="sub" x="130" y="191" text-anchor="middle">status = Draft</text>
+
+          <!-- proposals -->
+          <rect class="box" x="300" y="52" width="215" height="56" rx="3"/>
+          <text class="n2" x="407" y="74" text-anchor="middle">SpecialProcedure</text>
+          <text class="n2" x="407" y="88" text-anchor="middle">Proposal</text>
+          <text class="sub" x="407" y="102" text-anchor="middle">category.isSpecial = true</text>
+
+          <rect class="box" x="300" y="255" width="215" height="56" rx="3"/>
+          <text class="n2" x="407" y="279" text-anchor="middle">DiscountProposal</text>
+          <text class="sub" x="407" y="296" text-anchor="middle">doctor-requested rate</text>
+
+          <path class="ln-c" d="M220 168 C 255 168, 262 96, 293 82" marker-end="url(#a3)"/>
+          <path class="ln-c" d="M220 192 C 255 192, 262 268, 293 282" marker-end="url(#a3)"/>
+
+          <!-- gate -->
+          <rect class="box-l" x="590" y="150" width="180" height="60" rx="3"/>
+          <text class="n2" x="680" y="174" text-anchor="middle">Manager review</text>
+          <text class="sub" x="680" y="191" text-anchor="middle">reviewedBy · reviewedAt</text>
+
+          <path class="ln" d="M515 82 C 552 96, 558 160, 583 172" marker-end="url(#a3l)"/>
+          <path class="ln" d="M515 282 C 552 268, 558 200, 583 188" marker-end="url(#a3l)"/>
+          <text class="lbl" x="533" y="140" text-anchor="middle">Pending</text>
+
+          <!-- outcomes -->
+          <rect class="box-c" x="845" y="52" width="180" height="56" rx="3"/>
+          <text class="n2" x="935" y="76" text-anchor="middle">Plan → Active</text>
+          <text class="sub" x="935" y="93" text-anchor="middle">procedures schedulable</text>
+
+          <rect class="box-c" x="845" y="255" width="180" height="56" rx="3"/>
+          <text class="n2" x="935" y="279" text-anchor="middle">Invoice</text>
+          <text class="sub" x="935" y="296" text-anchor="middle">discountAmount set</text>
+
+          <path class="ln-c" d="M770 172 C 800 160, 808 94, 838 82" marker-end="url(#a3c)"/>
+          <text class="lbl-em" x="800" y="118" text-anchor="middle">Approved</text>
+          <path class="ln-c" d="M770 188 C 800 200, 808 268, 838 282" marker-end="url(#a3c)"/>
+          <text class="lbl-em" x="800" y="240" text-anchor="middle">Approved</text>
+
+          <!-- bypass -->
+          <rect class="box" x="300" y="345" width="215" height="42" rx="3"/>
+          <text class="n2" x="407" y="371" text-anchor="middle">Promotion</text>
+          <path class="ln-d" d="M515 366 C 700 366, 780 330, 872 313" marker-end="url(#a3)"/>
+          <text class="lbl" x="690" y="358" text-anchor="middle">manager-set — no review needed</text>
+
+          <text class="tag" x="40" y="28">ORIGIN</text>
+          <text class="tag" x="300" y="28">PROPOSAL</text>
+          <text class="tag" x="590" y="28">GATE</text>
+          <text class="tag" x="845" y="28">OUTCOME</text>
+        </svg>
+      </div>
+      <figcaption><b>One gate, two destinations.</b> Both proposal types carry the same <code>status</code> / <code>reviewedBy</code> / <code>reviewNote</code> shape, which is why they can share a single review queue in the UI. The dashed bypass shows why <code>Promotion</code> is a separate entity rather than another proposal type.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ 4. INVENTORY ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>Expected supplies vs. actual consumption</h2></div>
+    <p class="sec-lede">The inventory domain runs two parallel tracks that meet at the item. One says what a procedure <em>should</em> need; the other records what it <em>did</em> use. Keeping them separate is what makes variance visible.</p>
+
+    <figure>
+      <div class="fig-scroll">
+        <svg viewBox="0 0 1060 330" role="img" aria-label="Procedure instructions define an expected supply list while completed procedures write consumption logs; both reference the inventory item, whose reorder threshold triggers a vendor notification.">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
+            </marker>
+            <marker id="a4l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="var(--ledger)"/>
+            </marker>
+          </defs>
+
+          <!-- planned track -->
+          <rect class="box-c" x="40" y="60" width="205" height="56" rx="3"/>
+          <text class="n2" x="142" y="84" text-anchor="middle">ProcedureInstruction</text>
+          <text class="sub" x="142" y="101" text-anchor="middle">reusable template</text>
+
+          <rect class="box" x="325" y="60" width="205" height="56" rx="3"/>
+          <text class="n2" x="427" y="84" text-anchor="middle">ProcedureSupplyList</text>
+          <text class="sub" x="427" y="101" text-anchor="middle">quantityRequired</text>
+
+          <line class="ln" x1="245" y1="88" x2="318" y2="88" marker-end="url(#a4)"/>
+          <text class="lbl" x="281" y="80" text-anchor="middle">defines</text>
+
+          <!-- actual track -->
+          <rect class="box-c" x="40" y="212" width="205" height="56" rx="3"/>
+          <text class="n2" x="142" y="236" text-anchor="middle">TreatmentProcedure</text>
+          <text class="sub" x="142" y="253" text-anchor="middle">the real session</text>
+
+          <rect class="box" x="325" y="212" width="205" height="56" rx="3"/>
+          <text class="n2" x="427" y="236" text-anchor="middle">InventoryLog</text>
+          <text class="sub" x="427" y="253" text-anchor="middle">quantityDelta · changeType</text>
+
+          <line class="ln" x1="245" y1="240" x2="318" y2="240" marker-end="url(#a4)"/>
+          <text class="lbl" x="281" y="232" text-anchor="middle">consumes</text>
+
+          <!-- item -->
+          <rect class="box-l" x="620" y="136" width="190" height="60" rx="3"/>
+          <text class="n2" x="715" y="160" text-anchor="middle">InventoryItem</text>
+          <text class="sub" x="715" y="177" text-anchor="middle">quantityOnHand</text>
+
+          <path class="ln" d="M530 88 C 570 88, 578 148, 613 156" marker-end="url(#a4l)"/>
+          <text class="lbl" x="556" y="112" text-anchor="start">expected</text>
+          <path class="ln" d="M530 240 C 570 240, 578 182, 613 174" marker-end="url(#a4l)"/>
+          <text class="lbl" x="556" y="222" text-anchor="start">actual</text>
+
+          <!-- vendor -->
+          <rect class="box" x="880" y="136" width="145" height="60" rx="3"/>
+          <text class="n2" x="952" y="160" text-anchor="middle">Vendor</text>
+          <text class="sub" x="952" y="177" text-anchor="middle">contact for reorder</text>
+
+          <line class="ln-l" x1="810" y1="166" x2="873" y2="166" marker-end="url(#a4l)"/>
+
+          <path class="ln-d" d="M715 196 C 715 250, 830 258, 900 205"/>
+          <text class="lbl-lg" x="800" y="272" text-anchor="middle">notify when quantityOnHand &lt; reorderThreshold</text>
+
+          <text class="tag" x="40" y="32">PLANNED</text>
+          <text class="tag" x="40" y="188">ACTUAL</text>
+        </svg>
+      </div>
+      <figcaption><b>Two tracks, one item.</b> The template track is authored once per procedure type; the log track writes a row every time stock moves. Comparing them is how the assistant's prep list and the accountant's cost report come from the same data.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============ ENTITY INDEX ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>Complete entity index</h2></div>
+    <p class="sec-lede">All 29 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
+
+    <div class="domain clinical">
+      <div class="domain-head"><h3>Identity &amp; Access</h3><span class="domain-count">3 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>User</h4><span class="lock">Person record</span></div>
+          <p>Not a login &mdash; a <strong>person</strong>. Every human has exactly one row: staff, patient, or someone who has only ever booked online. Identity lives here once; the profiles carry no names.</p>
+          <div class="rel-label">Identity</div>
+          <ul class="fk">
+            <li>full_name <span class="nul">required</span></li>
+            <li>phone <span class="nul">required &middot; dedup key</span></li>
+            <li>email <span class="nul">nullable</span></li>
+            <li>national_id <span class="nul">nullable &middot; unique &middot; CCCD, 12 digits</span></li>
+          </ul>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>verified_by <span class="arw">&rarr;</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>status</b> Provisional &middot; Active &middot; Inactive</span>
+            <span class="enum"><b>role</b> Manager &middot; Doctor &middot; Receptionist &middot; Accountant &middot; Assistant &middot; Patient</span>
+          </div>
+          <div class="rel-label">Invariants</div>
+          <ul class="fk">
+            <li>Active <span class="arw">&rArr;</span> <span class="tgt">verified_at + verified_by</span></li>
+            <li>password_hash <span class="arw">&rArr;</span> <span class="tgt">email</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>StaffProfile</h4><span class="lock">Employment</span></div>
+          <p>Employment data only. No name, phone or address &mdash; those live on User.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk"><li>user_id <span class="arw">&rarr;</span> <span class="tgt">User</span> <span class="nul">unique</span></li></ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk">
+            <li>join_date, specialty, license_number</li>
+            <li>wage_type, hourly_rate</li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>wage_type</b> Monthly &middot; Hourly</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>PatientProfile</h4><span class="lock">Care</span></div>
+          <p>The care relationship, created <strong>on arrival</strong> &mdash; never at online-booking time. Its existence is what makes someone a patient rather than a provisional booker.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>user_id <span class="arw">&rarr;</span> <span class="tgt">User</span> <span class="nul">required &middot; unique</span></li>
+            <li>created_by <span class="arw">&rarr;</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk"><li>emergency_contact, referral_source</li></ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain clinical">
+      <div class="domain-head"><h3>Scheduling</h3><span class="domain-count">2 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>DoctorSchedule</h4></div>
+          <p>Recurring or one-off availability blocks the receptionist books against.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk"><li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li></ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>Appointment</h4></div>
+          <p>A scheduled visit. Points at <strong>User</strong>, so a Provisional person can hold a booking made before they ever arrived. Also carries the credit for a receptionist's follow-up.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>person_id <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">not PatientProfile</span></li>
+            <li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>assistantId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">nullable</span></li>
+            <li>followedUpBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+            <li>treatmentProcedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
+            <li>createdBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">null = self-booked</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>type</b> Consultation · Procedure · Followup</span>
+            <span class="enum"><b>booking_channel</b> Online · FrontDesk · Phone</span>
+            <span class="enum"><b>status</b> Scheduled · Confirmed · InProgress · Completed · Cancelled · NoShow</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain clinical">
+      <div class="domain-head"><h3>Clinical</h3><span class="domain-count">6 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>HealthRecord</h4></div>
+          <p>Medical history and baseline health data. One per patient.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span> <span class="nul">unique</span></li>
+            <li>lastUpdatedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>PatientMedia</h4></div>
+          <p>Imaging and photography — X-rays, CBCT scans, before/after shots.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span></li>
+            <li>procedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
+            <li>uploadedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>type</b> Xray · CBCT · Photograph · Other</span>
+            <span class="enum"><b>stage</b> Before · During · After</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>TreatmentPlan</h4></div>
+          <p>The clinical anchor. A patient may run several over time.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span></li>
+            <li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Draft · PendingApproval · Active · Completed · Cancelled</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>TreatmentProcedure</h4></div>
+          <p>One ordered step within a plan. Completion is what triggers commission.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span></li>
+            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span></li>
+            <li>instructionSetId <span class="arw">→</span> <span class="tgt">ProcedureInstruction</span> <span class="nul">nullable</span></li>
+            <li>assistantId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Planned · Scheduled · InProgress · Completed · Skipped</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>ProcedureInstruction</h4></div>
+          <p>Reusable clinical instruction template a doctor authors per procedure type.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>createdBy <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>TreatmentProgress</h4></div>
+          <p>Timestamped log of what happened in a session, including vitals.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>procedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span></li>
+            <li>loggedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain clinical">
+      <div class="domain-head"><h3>Catalog &amp; Pricing</h3><span class="domain-count">5 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>ServiceCategory</h4></div>
+          <p>The service catalog. Its <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">isSpecial</code> flag is what forces a procedure through manager approval.</p>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>PriceList</h4></div>
+          <p>Time-versioned price per category, so historical invoices stay correct.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span></li>
+            <li>setBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>Promotion</h4></div>
+          <p>Manager-set discount campaign. Reaches the invoice without review.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span> <span class="nul">nullable</span></li>
+            <li>createdBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>discountType</b> Percentage · FixedAmount</span>
+            <span class="enum"><b>applicableTo</b> AllServices · SpecificCategory</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>DiscountProposal</h4></div>
+          <p>Doctor-requested one-off discount on a plan. Requires approval.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span></li>
+            <li>proposedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+            <li>reviewedBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Pending · Approved · Rejected</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>SpecialProcedureProposal</h4></div>
+          <p>Doctor's request to include an implant, orthodontic or other flagged procedure.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span></li>
+            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span></li>
+            <li>proposedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+            <li>reviewedBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Pending · Approved · Rejected</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain clinical">
+      <div class="domain-head"><h3>Billing</h3><span class="domain-count">2 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>Invoice</h4></div>
+          <p>One per treatment plan. Both discount paths converge here.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span></li>
+            <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span></li>
+            <li>promotionId <span class="arw">→</span> <span class="tgt">Promotion</span> <span class="nul">nullable</span></li>
+            <li>discountProposalId <span class="arw">→</span> <span class="tgt">DiscountProposal</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Draft · Issued · PartiallyPaid · Paid · Overdue · Voided</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>Payment</h4></div>
+          <p>An individual transaction. Many may settle one invoice, supporting installments.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>invoiceId <span class="arw">→</span> <span class="tgt">Invoice</span></li>
+            <li>receivedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>method</b> Cash · BankTransfer · Card · Other</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain ops">
+      <div class="domain-head"><h3>Inventory</h3><span class="domain-count">4 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>InventoryItem</h4></div>
+          <p>A stocked supply or piece of equipment, with its reorder threshold.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk"><li>vendorId <span class="arw">→</span> <span class="tgt">Vendor</span> <span class="nul">nullable</span></li></ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>InventoryLog</h4></div>
+          <p>Every stock movement, with a snapshot of the level after the change.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>inventoryItemId <span class="arw">→</span> <span class="tgt">InventoryItem</span></li>
+            <li>relatedProcedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
+            <li>loggedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>changeType</b> Consumed · Restocked · Adjusted · Expired</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>Vendor</h4></div>
+          <p>Supplier contact the assistant reaches when stock runs low.</p>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>ProcedureSupplyList</h4></div>
+          <p>Expected supplies — attached to a template, or to one specific procedure.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>inventoryItemId <span class="arw">→</span> <span class="tgt">InventoryItem</span></li>
+            <li>instructionSetId <span class="arw">→</span> <span class="tgt">ProcedureInstruction</span> <span class="nul">nullable</span></li>
+            <li>procedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="domain ops">
+      <div class="domain-head"><h3>Communication &amp; HR</h3><span class="domain-count">7 entities</span></div>
+      <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>Notification</h4></div>
+          <p>Persisted paging between staff, and reminders out to patients.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>senderId <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+            <li>recipientId <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>type</b> Reminder · Page · Alert · Announcement</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>AttendanceLog</h4></div>
+          <p>Clock-in / clock-out per shift. The source of hours-based base pay.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>staffId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>payrollRecordId <span class="arw">→</span> <span class="tgt">PayrollRecord</span> <span class="nul">nullable</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>ReceptionistPerformanceLog</h4></div>
+          <p>Standalone event log bridging staff and patient — records who brought whom back.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>receptionistId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span></li>
+            <li>appointmentId <span class="arw">→</span> <span class="tgt">Appointment</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>eventType</b> NewPatientRegistered · SuccessfulFollowUp</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>CommissionRule</h4><span class="lock">Manager only</span></div>
+          <p>One versioned rate table for all three commissionable roles. A set <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">staffId</code> makes it an individual contract rate.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>staffId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">nullable</span></li>
+            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span> <span class="nul">nullable</span></li>
+            <li>setBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>role</b> Doctor · Assistant · Receptionist</span>
+            <span class="enum"><b>eventType</b> NewPatientRegistered · SuccessfulFollowUp</span>
+            <span class="enum"><b>commissionType</b> Percentage · FixedAmount</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>CommissionEntry</h4><span class="lock">Manager only</span></div>
+          <p>The unified earned-commission record. <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">sourceType</code> says which source FK is set.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>staffId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>commissionRuleId <span class="arw">→</span> <span class="tgt">CommissionRule</span></li>
+            <li>procedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
+            <li>performanceLogId <span class="arw">→</span> <span class="tgt">ReceptionistPerformanceLog</span> <span class="nul">nullable</span></li>
+            <li>payrollRecordId <span class="arw">→</span> <span class="tgt">PayrollRecord</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>sourceType</b> ProcedureCompleted · ReceptionistEvent</span>
+            <span class="enum"><b>status</b> Pending · IncludedInPayroll</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>PayrollAdjustment</h4><span class="lock">Manager only</span></div>
+          <p>Manual credit or debit with a mandatory reason — refund clawbacks, discretionary bonuses.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>staffId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>relatedCommissionEntryId <span class="arw">→</span> <span class="tgt">CommissionEntry</span> <span class="nul">nullable</span></li>
+            <li>relatedInvoiceId <span class="arw">→</span> <span class="tgt">Invoice</span> <span class="nul">nullable</span></li>
+            <li>payrollRecordId <span class="arw">→</span> <span class="tgt">PayrollRecord</span> <span class="nul">nullable</span></li>
+            <li>createdBy <span class="arw">→</span> <span class="tgt">User</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>direction</b> Credit · Debit</span>
+            <span class="enum"><b>status</b> Pending · IncludedInPayroll</span>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>PayrollRecord</h4><span class="lock">Manager only</span></div>
+          <p>The period settlement: base pay from hours, commission from entries, adjustments applied.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>staffId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>approvedBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Draft · Approved · Paid</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>On the approval status shape.</b> <code>DiscountProposal</code> and <code>SpecialProcedureProposal</code> carry an identical review surface — <code>status</code>, <code>reviewedBy</code>, <code>reviewedAt</code>, <code>reviewNote</code>. Worth keeping that shape aligned as the schema is built: it lets both types share one manager review queue rather than two.
+    </div>
+  </section>
+
+  <footer>
+    <span>KPX · Design / core-entities</span>
+    <span>29 entities · 7 domains</span>
+  </footer>
+
+</div>

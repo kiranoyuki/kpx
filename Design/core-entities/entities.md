@@ -5,72 +5,94 @@
 ## Domain: Identity & Access
 
 ### User
-The single authentication record for every person in the system.
+A **person record**, not a login. Every human in the system — staff, patient, or someone who has only ever booked online — has exactly one `User` row.
+
+Three facts about a person move independently, and separating them is what makes every intake path work off one table:
+
+| Fact | Becomes true when | Held by |
+|------|-------------------|---------|
+| We know who they are | First contact — online booking, phone, or the receptionist's questions | the row exists |
+| We have verified them | They arrive and someone checks their documents | `verifiedAt` / `verifiedBy` |
+| They can log in | Optional; may never happen | `passwordHash` |
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| email | string | unique, used for login |
-| passwordHash | string | |
+| fullName | string | known from first contact |
+| phone | string | required — the practical dedup key before a national ID exists |
+| email | string | unique; **nullable** — a walk-in may have none |
+| dateOfBirth | date | nullable |
+| address | string | nullable |
+| nationalId | string | unique; **nullable** — Vietnamese CCCD, exactly 12 digits. Stored as text, never numeric: it is an identifier, not a quantity, and leading zeros are significant |
+| status | enum | Provisional, Active, Inactive |
+| verifiedAt | timestamp | nullable — when identity was checked in person |
+| verifiedBy | UUID | FK → User; nullable — which staff member checked it |
+| passwordHash | string | **nullable** — null means the person cannot log in |
 | role | enum | Manager, Doctor, Receptionist, Accountant, Assistant, Patient |
-| isActive | bool | soft-disable without deleting |
 | createdAt | timestamp | |
 
+**Invariants**
+- `status = Active` requires both `verifiedAt` and `verifiedBy` — Active means a person physically verified them.
+- `passwordHash` requires `email` — no username, no login.
+- `nationalId` is exactly 12 digits when present, and unique across everyone.
+
+**Lifecycle**
+
+| Path | What happens |
+|------|--------------|
+| Books online | Row created `Provisional`: name, phone, email. No national ID, no password. Appointment booked against it immediately. |
+| Arrives at clinic | Receptionist checks the CCCD, fills `nationalId`, stamps `verifiedAt`/`verifiedBy`, flips to `Active`, creates the `PatientProfile`. Credentials offered separately. |
+| No-shows | Stays `Provisional`. Reminder query finds them and the desk chases a reschedule. |
+| Walks in | Created `Active` in one step, CCCD in hand. Same table, no special case. |
+
 **Relationships**
-- 1–1 → `StaffProfile` (if role is staff)
-- 1–1 → `PatientProfile` (if role is Patient)
+- 0–1 → `StaffProfile` (employment data, if staff)
+- 0–1 → `PatientProfile` (care relationship, created on arrival)
+- 1–N → `Appointment` (a Provisional person can hold a booking)
 - 1–N → `Notification` (sent or received)
+
+> `role` governs system access; having a `PatientProfile` governs whether they receive care. They are orthogonal — a doctor who is also a patient keeps `role = Doctor` and simply has both profiles.
 
 ---
 
 ### StaffProfile
-Extended information for any non-patient user.
+Employment data only. Identity lives on `User`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| userId | UUID | FK → User |
-| fullName | string | |
-| phone | string | |
-| address | string | |
-| dateOfBirth | date | |
+| userId | UUID | FK → User; unique |
 | joinDate | date | |
-| specialty | string | nullable; relevant for Doctor (e.g., "Orthodontics") |
-| licenseNumber | string | nullable; for Doctor |
-| wageType | enum | Monthly, Hourly — determines how base pay is calculated from attendance |
-| hourlyRate | decimal | nullable; used when wageType = Hourly |
+| specialty | string | nullable; Doctor only (e.g., "Orthodontics") |
+| licenseNumber | string | nullable; Doctor only |
+| wageType | enum | Monthly, Hourly — how base pay is calculated from attendance |
+| hourlyRate | decimal | nullable; required when wageType = Hourly |
 
 **Relationships**
-- 1–N → `PayrollRecord`
-- 1–N → `AttendanceLog`
-- 1–N → `CommissionEntry`
-- 1–N → `ReceptionistPerformanceLog.receptionistId` (if role is Receptionist)
-- 1–N → `DoctorSchedule` (if role is Doctor)
-- 1–N → `Appointment.doctorId` (if role is Doctor)
+- N–1 → `User`
+- 1–N → `PayrollRecord`, `AttendanceLog`, `CommissionEntry`
+- 1–N → `DoctorSchedule` (if Doctor)
 
 ---
 
 ### PatientProfile
-Extended information for patients.
+The **care relationship**. Created on arrival — never at online-booking time. Its existence is what distinguishes a patient from a provisional booker. Identity lives on `User`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| userId | UUID | FK → User; nullable (walk-in patients created by receptionist may not have a login yet) |
-| fullName | string | |
-| phone | string | |
-| dateOfBirth | date | |
-| address | string | |
-| emergencyContact | string | |
+| userId | UUID | FK → User; **required and unique** — every patient has a person record |
+| emergencyContact | string | nullable |
 | referralSource | string | nullable |
-| createdBy | UUID | FK → User (receptionist who registered) |
+| createdBy | UUID | FK → User (receptionist who registered them on arrival) |
 | createdAt | timestamp | |
 
 **Relationships**
+- N–1 → `User`
 - 1–1 → `HealthRecord`
-- 1–N → `Appointment`
-- 1–N → `TreatmentPlan`
-- 1–N → `PatientMedia`
+- 1–N → `TreatmentPlan`, `PatientMedia`
+
+> A `TreatmentPlan` and an `Invoice` reference `PatientProfile`, not `User`: you cannot carry a treatment plan or an invoice until you have arrived and become a patient. Only `Appointment` accepts a provisional person.
 
 ---
 
@@ -100,21 +122,22 @@ A scheduled visit linking a patient to a doctor at a specific time.
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| patientId | UUID | FK → PatientProfile |
+| personId | UUID | FK → **User** — not PatientProfile, so a Provisional person can hold a booking made before they ever arrived |
 | doctorId | UUID | FK → StaffProfile |
 | scheduledAt | timestamp | |
 | durationMinutes | int | default 30 |
 | type | enum | Consultation, Procedure, Followup |
 | status | enum | Scheduled, Confirmed, InProgress, Completed, Cancelled, NoShow |
+| bookingChannel | enum | Online, FrontDesk, Phone — Online bookings are the ones that create Provisional people and need the no-show chase |
 | treatmentProcedureId | UUID | FK → TreatmentProcedure; nullable (consultation has none) |
 | assistantId | UUID | FK → StaffProfile; nullable — assistant assigned to this visit |
 | followedUpBy | UUID | FK → User (Receptionist); nullable — receptionist whose follow-up contact led to this booking |
 | notes | text | receptionist or doctor notes |
-| createdBy | UUID | FK → User |
+| createdBy | UUID | FK → User; nullable — null means the patient self-booked online |
 | createdAt | timestamp | |
 
 **Relationships**
-- N–1 → `PatientProfile`
+- N–1 → `User` (the person the appointment is with)
 - N–1 → `StaffProfile` (doctor)
 - N–1 → `StaffProfile` (assistant, optional)
 - N–1 → `TreatmentProcedure` (optional)
@@ -166,7 +189,7 @@ The top-level clinical record for a course of treatment.
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| patientId | UUID | FK → PatientProfile |
+| patientId | UUID | FK → PatientProfile — a plan requires an arrived, verified patient |
 | doctorId | UUID | FK → StaffProfile |
 | title | string | e.g., "Lower implant — Q3 2026" |
 | status | enum | Draft, PendingApproval, Active, Completed, Cancelled |
