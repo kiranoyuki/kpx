@@ -139,6 +139,7 @@ The **care relationship**. Created on arrival — never at online-booking time. 
 - N–1 → `User`
 - 1–1 → `HealthRecord`
 - 1–N → `TreatmentPlan`, `PatientMedia`
+- 1–N → `ToothCondition` — the patient's odontogram is their `Active` conditions
 
 > A `TreatmentPlan` and an `Invoice` reference `PatientProfile`, not `User`: you cannot carry a treatment plan or an invoice until you have arrived and become a patient. Only `Appointment` accepts a provisional person.
 
@@ -275,10 +276,14 @@ An individual step or session within a treatment plan.
 | completedDate | date | nullable |
 
 **Relationships**
+- 1–N → `ProcedureTooth` (which teeth and surfaces this addresses)
 - 1–N → `TreatmentProgress`
 - 1–N → `Appointment`
 - 1–N → `ProcedureSupplyList`
 - 1–N → `CommissionEntry` (one for doctor, one for assistant on completion)
+- 1–N → `ToothCondition.resolvedByProcedureId` (the findings this work dealt with)
+
+> The tooth a procedure treats lives in `ProcedureTooth`, never in `doctorNote`. Free-text "#46" cannot be counted, priced, charted or audited.
 
 ---
 
@@ -313,6 +318,137 @@ A timestamped log entry recording what happened during a procedure session.
 
 ---
 
+## Domain: Dental Charting
+
+The odontogram. Everything clinical in a dental practice happens *to a specific tooth*, and often to specific *surfaces* of it — so the tooth is a first-class dimension, not a note.
+
+---
+
+### Tooth
+Static reference data: the FDI two-digit notation (ISO 3950). **52 rows, seeded once, never edited by users.**
+
+FDI reads as `quadrant · position`:
+
+| First digit — quadrant | | Second digit — position from the midline |
+|---|---|---|
+| `1` upper right, `2` upper left | *permanent* | `1` central incisor · `2` lateral incisor · `3` canine |
+| `3` lower left, `4` lower right | | `4` first premolar · `5` second premolar |
+| `5` upper right, `6` upper left | *primary* | `6` first molar · `7` second molar · `8` third molar |
+| `7` lower left, `8` lower right | | *(primary teeth stop at position 5)* |
+
+So `46` is the lower-right first molar; `11` is the upper-right central incisor; `51` is a child's upper-right primary central incisor. Left and right are always the **patient's**, not the viewer's — the single most common charting error.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| code | string | PK — the FDI code itself: `11`–`18`, `21`–`28`, `31`–`38`, `41`–`48` (permanent), `51`–`55`, `61`–`65`, `71`–`75`, `81`–`85` (primary) |
+| quadrant | int | 1–8, the first digit |
+| position | int | 1–8 permanent, 1–5 primary — the second digit |
+| dentition | enum | Permanent (32 teeth), Primary (20 teeth) |
+| arch | enum | Upper, Lower |
+| side | enum | Right, Left — **the patient's** |
+| toothType | enum | Incisor, Canine, Premolar, Molar |
+| isAnterior | bool | positions 1–3; decides whether the biting surface is incisal or occlusal |
+| validSurfaces | string | the surfaces that physically exist on this tooth — `MIDBL` anterior, `MODBL` posterior |
+| name | string | "Lower right first molar" |
+| nameVi | string | Vietnamese name, for patient-facing display |
+| universalCode | string | nullable — US 1–32 / A–T cross-reference, for imaging and CBCT software that speaks Universal rather than FDI |
+
+**Surfaces.** Five per tooth, and which five depends on where the tooth sits:
+
+| Code | Surface | Present on |
+|------|---------|-----------|
+| `M` | Mesial — toward the midline | all |
+| `D` | Distal — away from the midline | all |
+| `B` | Buccal / labial — toward cheek or lip | all |
+| `L` | Lingual / palatal — toward tongue or palate | all |
+| `O` | Occlusal — the chewing surface | posterior only (positions 4–8) |
+| `I` | Incisal — the biting edge | anterior only (positions 1–3) |
+
+`O` and `I` are mutually exclusive, which is why every tooth has exactly five. Surface sets are written in canonical order **M · O/I · D · B · L**, so a three-surface filling is `MOD` and never `DOM` — one spelling per set, so it can be compared and counted.
+
+> Why a table and not just a `CHECK` on a code column: the chart UI is data-driven from these rows, `validSurfaces` is what validates a filling, `isAnterior` drives clinical and pricing rules, and `name`/`nameVi` mean the patient-facing record reads as words rather than digits.
+
+**Relationships**
+- 1–N → `ToothCondition`
+- 1–N → `ProcedureTooth`
+
+---
+
+### ToothCondition
+A clinical finding on one tooth for one patient: what the dentist observed, when, and whether it has been dealt with. Together, the `Active` rows for a patient **are** their odontogram.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| patientId | UUID | FK → PatientProfile |
+| toothCode | string | FK → Tooth |
+| surfaces | string | nullable — canonical-ordered subset of that tooth's `validSurfaces`; null for whole-tooth findings |
+| conditionType | enum | see the table below |
+| status | enum | Active, Monitoring, Resolved, EnteredInError |
+| severity | enum | nullable — Mild, Moderate, Severe |
+| note | text | |
+| observedBy | UUID | FK → User (the clinician who charted it) |
+| observedAt | timestamp | |
+| resolvedByProcedureId | UUID | FK → TreatmentProcedure; nullable — the work that dealt with it |
+| resolvedAt | timestamp | nullable |
+
+**`conditionType` values**, grouped by what they describe:
+
+| Group | Values |
+|-------|--------|
+| Pathology | Caries, Fracture, Attrition, Erosion, Abrasion, Abscess, Mobility, Sensitivity, Discolouration |
+| Existing restoration | Filling, Crown, Veneer, BridgeAbutment, BridgePontic, Implant, RootCanalTreated, Denture |
+| Absence & eruption | Missing, Unerupted, Impacted, Supernumerary |
+
+Pathology and restorations sit in one enum deliberately: a dentist charting a mouth records "decay on 46 occlusal" and "existing crown on 24" in the same pass, and the odontogram draws them together.
+
+**Invariants**
+- `surfaces` must be a subset of that tooth's `validSurfaces` — an `O` on an incisor is nonsense and should be rejected.
+- Whole-tooth findings (`Missing`, `Unerupted`, `Impacted`, `Implant`, `Crown`, `Denture`) carry `surfaces = null`.
+- `status = Resolved` requires `resolvedAt`.
+- **Rows are append-only.** A finding recorded in error is marked `EnteredInError`, never deleted or edited — a clinical record has to show what was believed at the time, and by whom.
+
+> The link from finding to treatment is `resolvedByProcedureId`. That is what lets the chart answer "we found caries on 46 in March — what did we do about it, and when?", which is the question an audit or a second opinion actually asks.
+
+**Relationships**
+- N–1 → `PatientProfile`, `Tooth`
+- N–1 → `TreatmentProcedure` (optional, as the resolver)
+
+---
+
+### ProcedureTooth
+Which teeth — and which surfaces — a `TreatmentProcedure` addresses. A junction table, because the relationship is genuinely many-to-many in both directions.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| procedureId | UUID | FK → TreatmentProcedure |
+| toothCode | string | FK → Tooth |
+| surfaces | string | nullable — canonical-ordered subset of `validSurfaces`; null when the whole tooth is treated |
+| role | enum | nullable — Primary, Abutment, Pontic |
+| note | text | |
+
+Unique on (`procedureId`, `toothCode`).
+
+**Why not a `toothCode` column on `TreatmentProcedure`.** One procedure routinely covers several teeth, and one tooth accumulates procedures over years:
+
+| Procedure | Teeth |
+|-----------|-------|
+| Extraction | one |
+| Composite filling | one tooth, one to three surfaces |
+| Three-unit bridge | three — two `Abutment`, one `Pontic` |
+| Scaling | full mouth, or per quadrant |
+| Orthodontics | the whole dentition |
+
+A single column would be wrong the first time someone plans a bridge. `role` is what makes the bridge case legible: which teeth carry the load and which one is the replacement.
+
+> A `TreatmentPlan` needs no tooth column of its own — the teeth it covers are the union of its procedures' `ProcedureTooth` rows.
+
+**Relationships**
+- N–1 → `TreatmentProcedure`, `Tooth`
+
+---
+
 ## Domain: Catalog & Pricing
 
 ### ServiceCategory
@@ -324,8 +460,26 @@ The catalog of dental services/procedures the clinic offers.
 | name | string | e.g., "Implant", "Orthodontic", "Scaling", "Whitening" |
 | description | text | visible to patients on the public service list |
 | isSpecial | bool | true = requires manager approval to include in a plan |
+| toothScope | enum | **None, SingleTooth, MultiTooth, Quadrant, Arch, FullMouth** — how many teeth this service applies to, and therefore how many `ProcedureTooth` rows a procedure of this type must carry |
+| pricingBasis | enum | **PerProcedure, PerTooth, PerSurface, PerQuadrant** — what the `PriceList` unit price is charged *per* |
 | isActive | bool | |
 | displayOrder | int | for patient-facing ordering |
+
+**Tooth scope and pricing**
+
+`toothScope` validates; `pricingBasis` bills. They are independent — a full-mouth scaling may still be priced per quadrant.
+
+| Service | toothScope | pricingBasis | A procedure of this type… |
+|---------|-----------|--------------|---------------------------|
+| Consultation | None | PerProcedure | carries no `ProcedureTooth` rows |
+| Tooth Extraction | SingleTooth | PerTooth | carries exactly one |
+| Composite Filling | SingleTooth | PerSurface | one tooth; price × number of surfaces |
+| Porcelain Crown | SingleTooth | PerTooth | exactly one |
+| Bridge | MultiTooth | PerTooth | one row per unit, abutments and pontic alike |
+| Scaling & Polishing | FullMouth | PerProcedure | teeth optional; one flat price |
+| Orthodontic Braces | FullMouth | PerProcedure | one flat price for the course |
+
+> **This changes invoice arithmetic.** `Invoice.subtotal` was "sum of procedure prices"; with tooth-level work it becomes the sum over procedures of *unit price × billable quantity*, where the quantity comes from `pricingBasis`: `1` for PerProcedure, the `ProcedureTooth` count for PerTooth, the total surface count for PerSurface, the distinct quadrant count for PerQuadrant. A two-surface filling and a three-surface filling are not the same money, and the schema has to be able to say so.
 
 **Relationships**
 - 1–N → `PriceList`

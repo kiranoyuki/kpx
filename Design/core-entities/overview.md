@@ -2,13 +2,14 @@
 
 ## Entity Domains
 
-The system is organized into 7 domains, each grouping entities by concern.
+The system is organized into 8 domains, each grouping entities by concern.
 
 | Domain | Entities |
 |--------|----------|
 | Identity & Access | User, StaffProfile, PatientProfile |
 | Scheduling | DoctorSchedule, Appointment |
 | Clinical | HealthRecord, TreatmentPlan, TreatmentProcedure, ProcedureInstruction, TreatmentProgress, PatientMedia |
+| Dental Charting | Tooth, ToothCondition, ProcedureTooth |
 | Catalog & Pricing | ServiceCategory, PriceList, Promotion, DiscountProposal, SpecialProcedureProposal |
 | Billing | Invoice, Payment |
 | Inventory | InventoryItem, InventoryLog, Vendor, ProcedureSupplyList |
@@ -52,8 +53,11 @@ User — PERSON RECORD (one row per human; credentials optional)
       │   emergencyContact?, referralSource?, createdBy, createdAt      │
       ├── HealthRecord                                                  │
       ├── PatientMedia (X-rays, CBCT, before/after photos)              │
+      ├── ToothCondition ── Tooth   [the odontogram: Active rows = chart]│
+      │    └── resolvedByProcedureId → TreatmentProcedure               │
       └── TreatmentPlan                                                 │
            ├── TreatmentProcedure ─── ProcedureInstruction              │
+           │    ├── ProcedureTooth ── Tooth  (which teeth + surfaces)    │
            │    ├── assistantId → StaffProfile                          │
            │    ├── TreatmentProgress                                   │
            │    ├── ProcedureSupplyList ── InventoryItem                │
@@ -81,8 +85,14 @@ PayrollAdjustment [Manager-only] (bridges StaffProfile ↔ PayrollRecord)
  ├── relatedCommissionEntryId → CommissionEntry (nullable — for commission clawbacks)
  └── relatedInvoiceId → Invoice (nullable — for patient refund deductions)
 
+Tooth — STATIC REFERENCE (FDI / ISO 3950, 52 rows: 32 permanent + 20 primary)
+ │   code = quadrant digit + position digit   e.g. 46 = lower right first molar
+ └── validSurfaces: MIDBL anterior (incisal) | MODBL posterior (occlusal)
+
 ServiceCategory ─── PriceList (set by Manager)
-                └── Promotion (set by Manager)
+                ├── Promotion (set by Manager)
+                ├── toothScope:   None | SingleTooth | MultiTooth | Quadrant | Arch | FullMouth
+                └── pricingBasis: PerProcedure | PerTooth | PerSurface | PerQuadrant
 
 InventoryItem ─── Vendor
               └── InventoryLog
@@ -167,26 +177,47 @@ The alternative — a separate `lead` table for online bookers — looks tidier 
 
 With one table, **conversion on arrival is one `UPDATE` plus one `INSERT`** — the appointment's FK never changes, because it was valid from the moment it was booked. `TreatmentPlan` and `Invoice` still reference `PatientProfile`: you can book before you are a patient, but you cannot carry a treatment plan or an invoice until you are.
 
-### 6. `TreatmentPlan` is the clinical anchor
+### 6. The tooth is a dimension, not a note
+Dentistry happens to a specific tooth, and usually to specific surfaces of it. `ProcedureTooth` records which teeth and surfaces each procedure addresses; `ToothCondition` records what was found on a tooth and whether it has been dealt with.
+
+The alternative — a tooth number written into `doctorNote` — fails the moment anyone needs to *use* it. Free text cannot be counted for billing, drawn on a chart, filtered for recall, or audited. It is also what the earlier seed data quietly did (`'Atraumatic extraction #46'`), which is exactly the smell this entity removes.
+
+`ProcedureTooth` is a junction rather than a column because the relationship is many-to-many in both directions: a three-unit bridge covers three teeth (two `Abutment`, one `Pontic`), full-mouth scaling covers all of them, and a single molar accumulates a filling, then a crown, then an extraction over a decade.
+
+### 7. FDI notation, with the patient's left and right
+Codes are FDI / ISO 3950: quadrant digit then position digit, `11`–`48` for the 32 permanent teeth and `51`–`85` for the 20 primary ones. Primary teeth are not optional — the clinic treats children, and a seven-year-old is in mixed dentition.
+
+`Tooth` is a static 52-row reference table rather than a bare `CHECK` constraint, because those rows carry information the rest of the system needs: `validSurfaces` (`MIDBL` anterior, `MODBL` posterior) validates a filling, `isAnterior` drives clinical and pricing rules, and `name`/`nameVi` let the record read as words. `universalCode` cross-references US 1–32 numbering for imaging software that speaks Universal rather than FDI.
+
+Side is always the **patient's** left and right, never the viewer's. It is the most common charting error, so it is stated on the entity itself.
+
+### 8. Tooth-level work changes how an invoice is calculated
+`ServiceCategory` gains `toothScope` (how many teeth a service applies to — validation) and `pricingBasis` (what the unit price is charged per — billing). They are independent: a full-mouth scaling can still be priced per quadrant.
+
+`Invoice.subtotal` was "the sum of procedure prices". With tooth-level work it becomes the sum of *unit price × billable quantity*, where quantity follows `pricingBasis` — `1` for PerProcedure, the `ProcedureTooth` count for PerTooth, the total surface count for PerSurface, the distinct quadrant count for PerQuadrant.
+
+A two-surface filling and a three-surface filling are different money. Without this, either the schema cannot express the difference or someone types the right number into a free-text field and nothing can check it.
+
+### 9. `TreatmentPlan` is the clinical anchor
 Everything clinical orbits the treatment plan: procedures, progress logs, notes, discounts, invoicing. A patient may have multiple treatment plans over time (e.g., one for orthodontics, one for implants).
 
-### 7. Procedures are typed by `ServiceCategory`
+### 10. Procedures are typed by `ServiceCategory`
 `ServiceCategory` carries the `isSpecial` flag. Special categories (implant, orthodontic) require a `SpecialProcedureProposal` approved by the manager before the plan is activated. This matches the doctor's approval workflow.
 
-### 8. Pricing is time-versioned
+### 11. Pricing is time-versioned
 `PriceList` records carry an `effectiveFrom` date so historical invoices remain correct after the manager changes prices.
 
-### 9. Discounts flow through two paths
+### 12. Discounts flow through two paths
 - **Manager-set promotions**: `Promotion` entities applied at invoice time.
 - **Doctor-proposed discounts**: `DiscountProposal` linked to a specific `TreatmentPlan`; requires manager approval before being applied to the `Invoice`.
 
-### 10. Inventory is dual-purpose
+### 13. Inventory is dual-purpose
 `ProcedureSupplyList` is a template per `ProcedureInstruction` (what supplies are expected). `InventoryLog` records actual consumption or restocking events. Assistants work from both views.
 
-### 11. `Notification` is a first-class entity
+### 14. `Notification` is a first-class entity
 Paging between staff (doctor → assistant, manager → all) is tracked as notifications, not just ephemeral pushes. This supports audit and follow-up reminders.
 
-### 12. Pay rates are versioned, never overwritten
+### 15. Pay rates are versioned, never overwritten
 `WageRate` holds one row per rate a staff member has ever been on, each with an `effectiveFrom`. A raise or a promotion **inserts** a row; it never edits one. The rate for a day of work is the row with the greatest `effectiveFrom` on or before that day — the same mechanism `PriceList` uses to price a procedure by the date it was performed.
 
 A single `hourlyRate` column on `StaffProfile` could only ever hold the *current* rate. That answers "what do we pay them now" and nothing else:
@@ -204,30 +235,30 @@ Settled payroll was never *wrong* under the old shape — `PayrollRecord.basePay
 
 Open decision: for `wageType = Monthly`, a rate change mid-period needs a pro-rating rule — calendar days or working days. `Hourly` needs none.
 
-### 13. Payroll is built from two independent streams
+### 16. Payroll is built from two independent streams
 `PayrollRecord.netPay = basePay + commissionTotal − deductions`. Base pay comes from `AttendanceLog` (hours-based) or a fixed monthly rate. Commission comes from `CommissionEntry` records — the same mechanism for every staff role. There is no separate "performance bonus" stream; receptionist KPI bonuses flow through `CommissionEntry` like any other commission.
 
-### 14. `CommissionRule` covers all commissionable roles with a single unified structure
+### 17. `CommissionRule` covers all commissionable roles with a single unified structure
 One entity replaces two separate systems. For Doctor/Assistant the rule is scoped by `serviceCategoryId`; for Receptionist it is scoped by `eventType`. A nullable `staffId` field enables individual contract rates that override the role-level defaults. Rules are time-versioned with `effectiveFrom`, and each `CommissionEntry` locks in the rule at the time the event occurred — historical payroll is never retroactively changed.
 
-### 15. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
+### 18. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
 It is a bridge between `StaffProfile` and `PatientProfile` that records *what happened* (which receptionist brought in which patient). Commission amounts live in `CommissionEntry`, not here. This separation keeps the event record clean and auditable independently of payroll configuration. The manager can see "receptionist A registered 12 new patients this month" separately from "how much did we pay her for that."
 
-### 16. No staff member earns commission on their own treatment
+### 19. No staff member earns commission on their own treatment
 Staff are welcome to be treated at the clinic — the rule is only about who gets paid. A `CommissionEntry` may not be created where the credited staff member resolves to the same `User` as the patient on that procedure's `TreatmentPlan`. It applies to the doctor and the assistant alike.
 
 If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient. Without this rule, consolidating staff and patients onto one `User` row would quietly let a doctor bill the clinic for treating themselves.
 
-### 17. `CommissionEntry` uses `sourceType` to support two trigger paths
+### 20. `CommissionEntry` uses `sourceType` to support two trigger paths
 - `ProcedureCompleted`: created when a `TreatmentProcedure` moves to Completed. Two entries are written — one for the doctor, one for the assistant.
 - `ReceptionistEvent`: created immediately when a `ReceptionistPerformanceLog` record is written.
 
 In both cases the commission base value (`commissionBase`) is snapshotted at creation time so the manager's payroll review always shows the exact calculation, even if prices or rules change later.
 
-### 18. Commission dashboard is Manager-only
+### 21. Commission dashboard is Manager-only
 `CommissionRule`, `CommissionEntry`, `PayrollAdjustment`, and the full `PayrollRecord` breakdown are visible only to the Manager role. Staff see only their own net pay on their payslip — not the commission rates, individual commission entries, or adjustment reasons. This is enforced at the API permission layer, not the data model.
 
-### 19. Manual payroll adjustments are immutable once payroll is finalized
+### 22. Manual payroll adjustments are immutable once payroll is finalized
 `PayrollAdjustment` records in `Pending` status can be edited or deleted by the manager before payroll is approved. Once a payroll is finalized (`status = Approved`), all linked adjustments become `IncludedInPayroll` and are locked. Any subsequent correction requires a new offsetting adjustment in the next payroll period — there is no in-place editing of settled records. This preserves a clean audit trail for disputes or accounting review.
 
 The `direction` field (Credit / Debit) with a mandatory `reason` field means every non-system adjustment is traceable to a manager decision and a written business justification. Typical debit scenarios: patient refund caused by a procedure error (link `relatedInvoiceId`), commission clawback on a cancelled treatment (link `relatedCommissionEntryId`). Typical credit scenarios: discretionary end-of-year bonus, short-notice shift coverage.
