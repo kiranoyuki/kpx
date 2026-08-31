@@ -414,7 +414,7 @@
           <rect class="box" x="280" y="60" width="220" height="70" rx="3"/>
           <text class="n2" x="390" y="84" text-anchor="middle">User · Provisional</text>
           <text class="sub" x="390" y="101" text-anchor="middle">name + phone + email</text>
-          <text class="sub" x="390" y="116" text-anchor="middle">no CCCD · no profile · never signs in</text>
+          <text class="sub" x="390" y="116" text-anchor="middle">no CCCD · no profile · no OTP issued</text>
 
           <rect class="box-c" x="590" y="175" width="220" height="70" rx="3"/>
           <text class="n2" x="700" y="199" text-anchor="middle">User · Active</text>
@@ -426,9 +426,9 @@
           <text class="sub" x="950" y="123" text-anchor="middle">care begins</text>
 
           <rect class="box-c" x="870" y="288" width="160" height="58" rx="3"/>
-          <text class="n2" x="950" y="308" text-anchor="middle">Patient portal</text>
-          <text class="sub" x="950" y="324" text-anchor="middle">name + phone + CCCD</text>
-          <text class="sub" x="950" y="337" text-anchor="middle">no password</text>
+          <text class="n2" x="950" y="306" text-anchor="middle">Patient portal</text>
+          <text class="sub" x="950" y="322" text-anchor="middle">phone OTP, or</text>
+          <text class="sub" x="950" y="335" text-anchor="middle">name + phone + CCCD</text>
 
           <line class="ln" x1="210" y1="93" x2="273" y2="93" marker-end="url(#a0)"/>
           <text class="lbl" x="241" y="85" text-anchor="middle">creates</text>
@@ -450,7 +450,7 @@
           <text class="lbl" x="395" y="228" text-anchor="middle">NoShow &#8594; stays Provisional &#8594; reschedule chase</text>
         </svg>
       </div>
-      <figcaption><b>One table, four entry paths.</b> The teal boxes are verified states. Note what the dashed self-loop means: a no-show never becomes a patient, never gets a <code>PatientProfile</code>, and keeps no CCCD, and never signs in &mdash; the clinic reaches them by confirmation and reminder messages instead. They still hold a bookable row, which is why the appointment can point at them from the moment they book.</figcaption>
+      <figcaption><b>One table, four entry paths.</b> The teal boxes are verified states. Note what the dashed self-loop means: a no-show never becomes a patient, never gets a <code>PatientProfile</code>, and keeps no CCCD, and is never issued an OTP &mdash; sending one would admit an unverified person, so the clinic reaches them by confirmation and reminder messages instead. They still hold a bookable row, which is why the appointment can point at them from the moment they book.</figcaption>
     </figure>
   </section>
 
@@ -817,9 +817,14 @@
           <div class="rel-label">Portals &mdash; granted by profile, not role</div>
           <ul class="fk">
             <li>PatientProfile <span class="arw">&rArr;</span> <span class="tgt">patient portal</span></li>
-            <li>StaffProfile Active <span class="arw">&rArr;</span> <span class="tgt">staff portal</span></li>
+            <li>StaffProfile Intern|Active <span class="arw">&rArr;</span> <span class="tgt">staff portal</span></li>
           </ul>
-          <p style="font-size:12px">Authentication itself is <strong>deferred</strong>. Patients will identify with name + phone + CCCD &mdash; all already here, so sign-in needs no new columns.</p>
+          <div class="rel-label">Patient sign-in &mdash; no password</div>
+          <ul class="fk">
+            <li>phone OTP <span class="nul">proves possession &middot; preferred</span></li>
+            <li>name + phone + CCCD <span class="nul">proves knowledge</span></li>
+          </ul>
+          <p style="font-size:12px">Both routes read columns already here, so credential and OTP <strong>storage stays deferred</strong>. Provisional people never sign in by either route &mdash; an OTP would bypass the in-person check.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>StaffProfile</h4><span class="lock">Employment</span></div>
@@ -834,10 +839,11 @@
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums">
-            <span class="enum"><b>employment_status</b> Active &middot; OnLeave &middot; Departed</span>
+            <span class="enum"><b>employment_status</b> Intern &middot; Active &middot; OnLeave &middot; Departed</span>
             <span class="enum"><b>wage_type</b> Monthly &middot; Hourly</span>
           </div>
           <p style="font-size:12px">Employment ends <strong>here</strong>, not on <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">User</code> &mdash; so someone who quits stays an active person and may still be a patient. Departure is a state change, never a deletion.</p>
+          <p style="font-size:12px"><strong>Intern</strong> is working and assignable, and reaches the staff portal: the difference from Active is <em>terms</em>, not access. The trainee wage and any reduced commission are expressed with existing fields.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>PatientProfile</h4><span class="lock">Care</span></div>

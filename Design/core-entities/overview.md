@@ -26,7 +26,7 @@ User — PERSON RECORD (one row per human; credentials optional)
  │
  │   PORTALS are granted by profile, not by role:
  │     PatientProfile exists                      -> patient portal
- │     StaffProfile.employmentStatus = Active     -> staff portal
+ │     StaffProfile.employmentStatus Intern|Active -> staff portal
  │     (a person may hold both; a departed doctor keeps only the patient one)
  │
  ├── Appointment ──── DoctorSchedule       [points at User, NOT PatientProfile]
@@ -36,7 +36,7 @@ User — PERSON RECORD (one row per human; credentials optional)
  │         └─ Online + NoShow + still Provisional = the reschedule chase
  │
  ├── StaffProfile — EMPLOYMENT ONLY
- │    │   employmentStatus = Active | OnLeave | Departed   <- gates the staff portal
+ │    │   employmentStatus = Intern | Active | OnLeave | Departed  <- gates staff portal
  │    │   joinDate, endDate?, specialty?, licenseNumber?, wageType, hourlyRate?
  │    ├── AttendanceLog (clock-in / clock-out per shift)
  │    ├── CommissionEntry ←─────────────────────────────────────────────┐
@@ -107,17 +107,25 @@ Bundling them into one "has an account" flag is what makes walk-ins and online n
 |-------|----------|---------|
 | Identity | Who is this person? | the `User` row exists |
 | Verification | Have we checked them in person? | `verifiedAt` / `verifiedBy` |
-| Authentication | How do they prove it to the system? | **deferred — not modelled yet** |
+| Authentication | How do they prove it to the system? | mechanism chosen (below); **storage deferred** |
 
 `status = Active` requires `verifiedAt` **and** `verifiedBy`. `nationalId` is stored as **text, never a numeric type** — it is an identifier, not a quantity, and leading zeros are significant. Vietnamese CCCD is exactly 12 digits.
 
-The authentication layer is deliberately empty for now. What is already settled about it:
+No credential or OTP tables exist yet. What is already settled:
 
-- **Provisional people never sign in.** They receive booking confirmations and reminders by phone or email, and contact the clinic to change anything. No credential is ever issued to someone who has not arrived.
-- **Patients use no password.** They identify with a combination of `fullName`, `phone` and `nationalId` — all already on the `User` record, so patient sign-in needs no new columns. Which combination is required is still open.
+- **Provisional people never sign in**, by any route. They receive booking confirmations and reminders by phone or email, and contact the clinic to change anything. They *do* have a phone, so an OTP would technically reach them — but issuing one would admit an unverified person and bypass the very in-person check that `Active` exists to record.
+- **Patients use no password.** Two routes, both reading fields the record already has:
+
+| Route | Uses | Proves |
+|-------|------|--------|
+| **Phone OTP** | `phone` | *possession* — they hold the handset |
+| Identifying fields | `fullName` + `phone` + `nationalId` | *knowledge* — required combination still open |
+
 - **Staff use a username and password, or a hardware chip.** Mechanism still open.
 
-Because none of this needs new columns yet, credential storage can be designed later without disturbing the person model.
+Phone OTP is the better patient default. It does not depend on the CCCD being confidential — and a CCCD is **not** a secret: it appears on documents and is routinely handed to hotels and banks. OTP is also the only route that works for a patient with neither an email nor a CCCD, such as a foreign patient or a walk-in verified by other means.
+
+Because every route reads columns the `User` record already carries, credential and OTP storage can be designed later without disturbing the person model.
 
 ### 3. Portal access comes from profiles, not from `role`
 There are two portals, and what grants them is what a person **has**, not what their `role` says:
@@ -125,7 +133,7 @@ There are two portals, and what grants them is what a person **has**, not what t
 | Portal | Granted when |
 |--------|--------------|
 | Patient | `User.status = Active` and a `PatientProfile` exists |
-| Staff | `User.status = Active` and a `StaffProfile` with `employmentStatus = Active` exists |
+| Staff | `User.status = Active` and a `StaffProfile` with `employmentStatus` of Intern or Active exists |
 
 `role` then governs permissions *inside* the staff portal. Patients can never reach it.
 
@@ -134,7 +142,20 @@ This is what makes the dual cases work without special-casing. A doctor who is a
 ### 4. Employment ends on `StaffProfile`; the person continues on `User`
 `User.status` describes the **person** — known, verified, or deactivated. `StaffProfile.employmentStatus` describes the **job**. Keeping them apart is what allows a departed staff member to remain a patient at the clinic.
 
-`employmentStatus` is `Active | OnLeave | Departed`; `Departed` requires an `endDate`. Only `Active` staff may be assigned to new appointments, procedures or schedules — `OnLeave` covers maternity, sabbatical or long illness, where someone is not bookable but has not left.
+`employmentStatus` is `Intern | Active | OnLeave | Departed`; `Departed` requires an `endDate`.
+
+| Status | Assignable to new work | Staff portal |
+|--------|------------------------|--------------|
+| Intern | yes | yes |
+| Active | yes | yes |
+| OnLeave | no | no |
+| Departed | no | no |
+
+`Intern` covers someone accepted and in training or on trial, not yet full-time. They are working, so they are assignable and reach the staff portal — **the distinction from `Active` is terms, not access.** Their different pay needs no new fields: `wageType`/`hourlyRate` carry the trainee rate, and a `CommissionRule` scoped to that `staffId` carries a reduced rate, or none at all if interns earn no commission.
+
+`OnLeave` covers maternity, sabbatical or long illness — not bookable, but not gone.
+
+One consequence to settle later: `hourlyRate` holds a single value, so promoting an intern overwrites the trainee rate, and recomputing an earlier payroll period would silently use the new one. That is the same problem `PriceList` solves with `effectiveFrom`; wages likely want the same treatment before payroll runs on real money.
 
 Departure is a **state change, never a deletion**. Past treatment plans, appointments, commission entries and payroll records keep pointing at the departed staff member; that is precisely what keeps last year's reports correct.
 

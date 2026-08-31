@@ -44,24 +44,32 @@ Two facts about a person move independently:
 | No-shows | Stays `Provisional`. The desk chases a reschedule by phone or email. |
 | Walks in | Created `Active` in one step, CCCD in hand. Same table, no special case. |
 
-**Authentication** *(design deferred — credential storage is out of scope for now)*
+**Authentication** *(credential and OTP storage is out of scope for now)*
 
 There are two portals, and a person reaches them by what they **have**, not by their `role`:
 
 | Portal | Granted when |
 |--------|--------------|
 | Patient | `User.status = Active` **and** a `PatientProfile` exists |
-| Staff | `User.status = Active` **and** a `StaffProfile` exists with `employmentStatus = Active` |
+| Staff | `User.status = Active` **and** a `StaffProfile` exists with `employmentStatus` of **Intern or Active** |
 
 `role` then governs permissions *inside* the staff portal. Patients can never reach the staff portal.
 
-- **Patients use no password.** They identify with a combination of `fullName`, `phone` and `nationalId` — all fields already on this record, so patient sign-in needs no new columns. Exact required combination TBD.
+**Patients use no password.** Two routes, both resting on fields already present on this record:
+
+| Route | Uses | Proves |
+|-------|------|--------|
+| **Phone OTP** | `phone` | *possession* — they hold the handset |
+| Identifying fields | `fullName` + `phone` + `nationalId` | *knowledge* — exact combination TBD |
+
+Phone OTP is the stronger of the two and the better default: it does not depend on the CCCD being confidential, and it is the only route that works for a patient who has **neither an email nor a CCCD** — a foreign patient, or a walk-in verified by other means.
+
 - **Staff use a username and password, or a hardware chip.** Mechanism TBD.
-- **Provisional people never authenticate at all** — they have no `nationalId` to identify against, which is consistent with reaching them only by confirmation and reminder messages.
+- **Provisional people never authenticate**, by either route. They have a `phone`, so an OTP would technically reach them — but issuing one would let an unverified person into the system and bypass the in-person check that `Active` exists to record. Their phone is for booking confirmations and reminders only.
 
 > Deriving portal access from profiles rather than `role` is what lets one person hold both: a doctor who is also a patient reaches both portals, and a **departed** doctor keeps the patient portal while losing the staff one.
 
-> Security note for the sign-in decision: a CCCD is not a secret — it appears on documents and is routinely shared with hotels and banks. Combined with name and phone it is reasonable for low-risk access, but it is worth deciding consciously how much it should unlock before it gates clinical records.
+> Security note for the sign-in decision: a CCCD is **not a secret** — it appears on documents and is routinely shared with hotels and banks. Phone OTP avoids that problem entirely; if the identifying-fields route is also offered, it is worth deciding consciously how much it should unlock on its own before it gates clinical records.
 
 **Relationships**
 - 0–1 → `StaffProfile` (employment, if staff)
@@ -81,17 +89,30 @@ Employment data only. Identity lives on `User`.
 | id | UUID | PK |
 | userId | UUID | FK → User; unique |
 | joinDate | date | |
-| employmentStatus | enum | **Active, OnLeave, Departed** — whether they currently work at the clinic |
+| employmentStatus | enum | **Intern, Active, OnLeave, Departed** — where they sit in the employment lifecycle |
 | endDate | date | nullable; required when `employmentStatus = Departed` |
 | specialty | string | nullable; Doctor only (e.g., "Orthodontics") |
 | licenseNumber | string | nullable; Doctor only |
 | wageType | enum | Monthly, Hourly — how base pay is calculated from attendance |
 | hourlyRate | decimal | nullable; required when wageType = Hourly |
 
+**Employment lifecycle**
+
+| Status | Working? | Assignable to new work? | Staff portal? | Notes |
+|--------|----------|------------------------|---------------|-------|
+| **Intern** | yes | **yes** | yes | Applied and accepted, in training or on trial. Not full-time. Carries its own wage and commission terms. |
+| **Active** | yes | yes | yes | Full employment. |
+| **OnLeave** | no | no | no | Maternity, sabbatical, long illness. Not bookable, but not gone. |
+| **Departed** | no | no | no | Employment ended. `endDate` required. |
+
 **Invariants**
 - `employmentStatus = Departed` requires `endDate`; `endDate` set requires `employmentStatus = Departed`.
-- Only `employmentStatus = Active` staff may be assigned to **new** appointments, procedures or schedules. `OnLeave` covers maternity, sabbatical or long illness — not bookable, but not gone.
+- Only `Intern` or `Active` staff may be assigned to **new** appointments, procedures or schedules, and only they reach the staff portal. An intern is working and needs the system to do the job — the distinction from `Active` is terms, not access.
 - **Ending employment never changes `User.status`.** The person stays `Active` and keeps any `PatientProfile` they have.
+
+> **Interns are paid on different terms.** The existing fields already express it: `wageType` / `hourlyRate` carry the trainee rate, and a `CommissionRule` scoped to that `staffId` carries a reduced rate — or none at all, if interns do not earn commission. No new fields are needed to state the difference.
+
+> Open question for a later pass: `hourlyRate` holds a **single** value, so promoting an intern to full-time overwrites the trainee rate, and recomputing an earlier payroll period would silently use the new one. This is the same class of problem `PriceList` solves with `effectiveFrom`. Worth versioning wages the same way before payroll runs on real money.
 
 > This separation is the whole point: employment ends on `StaffProfile`, the person continues on `User`. A doctor who quits and remains a patient at the clinic loses the staff portal and keeps the patient portal, with no record surgery and no history rewritten.
 
