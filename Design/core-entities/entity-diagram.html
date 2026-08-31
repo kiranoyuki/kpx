@@ -362,9 +362,9 @@
   <header class="mast">
     <div class="eyebrow">KPX · Dental Clinic Management</div>
     <h1>Entity Map</h1>
-    <p class="deck">The data model behind KPX — 35 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
+    <p class="deck">The data model behind KPX — 36 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
     <div class="stats">
-      <div class="stat"><b>35</b><span>Entities</span></div>
+      <div class="stat"><b>36</b><span>Entities</span></div>
       <div class="stat"><b>8</b><span>Domains</span></div>
       <div class="stat"><b>6</b><span>Roles</span></div>
       <div class="stat"><b>6</b><span>Diagrams</span></div>
@@ -933,7 +933,7 @@
   <!-- ============ ENTITY INDEX ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">07</span><h2>Complete entity index</h2></div>
-    <p class="sec-lede">All 35 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
+    <p class="sec-lede">All 36 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
 
     <div class="domain clinical">
       <div class="domain-head"><h3>Identity &amp; Access</h3><span class="domain-count">3 entities</span></div>
@@ -1038,7 +1038,7 @@
     </div>
 
     <div class="domain clinical">
-      <div class="domain-head"><h3>Clinical</h3><span class="domain-count">6 entities</span></div>
+      <div class="domain-head"><h3>Clinical</h3><span class="domain-count">7 entities</span></div>
       <div class="cards">
         <div class="card">
           <div class="card-top"><h4>HealthRecord</h4></div>
@@ -1107,6 +1107,22 @@
           </ul>
         </div>
         <div class="card">
+          <div class="card-top"><h4>ProcedureDecision</h4><span class="lock">Append-only</span></div>
+          <p>Every status change a procedure passes through &mdash; who decided, when, and <strong>why</strong>. The clinic&rsquo;s defensive record.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>procedureId <span class="arw">&rarr;</span> <span class="tgt">TreatmentProcedure</span></li>
+            <li>decidedBy <span class="arw">&rarr;</span> <span class="tgt">User</span> <span class="nul">who recorded it</span></li>
+          </ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk">
+            <li>from_status, to_status, decided_at</li>
+            <li>reason <span class="nul">required to decline or skip</span></li>
+            <li>risk_explained <span class="nul">for a refusal</span></li>
+          </ul>
+          <p style="font-size:12px"><strong>Informed refusal is the point.</strong> A <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">declined_at</code> field holds only the latest state, and treatment is re-proposed &mdash; declining a crown on cost in March then accepting in November would overwrite the March refusal, which is exactly the record needed had the tooth fractured instead.</p>
+        </div>
+        <div class="card">
           <div class="card-top"><h4>ProcedureSession</h4><span class="lock">Billing unit</span></div>
           <p>One visit&rsquo;s work on a procedure &mdash; <strong>and the unit the clinic is paid at</strong>. Replaces TreatmentProgress, which already described itself as a session record.</p>
           <div class="rel-label">Foreign keys</div>
@@ -1156,7 +1172,6 @@
             <li>patient_id <span class="arw">&rarr;</span> <span class="tgt">PatientProfile</span></li>
             <li>tooth_code <span class="arw">&rarr;</span> <span class="tgt">Tooth</span></li>
             <li>observed_by <span class="arw">&rarr;</span> <span class="tgt">User</span></li>
-            <li>resolved_by_procedure_id <span class="arw">&rarr;</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums">
@@ -1174,12 +1189,14 @@
           <ul class="fk">
             <li>procedure_id <span class="arw">&rarr;</span> <span class="tgt">TreatmentProcedure</span></li>
             <li>tooth_code <span class="arw">&rarr;</span> <span class="tgt">Tooth</span></li>
+            <li>addresses_condition_id <span class="arw">&rarr;</span> <span class="tgt">ToothCondition</span> <span class="nul">nullable &middot; the clinical why</span></li>
           </ul>
           <div class="rel-label">Fields</div>
           <ul class="fk"><li>surfaces <span class="nul">e.g. MOD &middot; canonical order</span></li></ul>
           <div class="rel-label">Enums</div>
           <div class="enums"><span class="enum"><b>role</b> Primary &middot; Abutment &middot; Pontic</span></div>
           <p style="font-size:12px">The tooth never lives in <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">doctor_note</code>. Free text cannot be counted for billing, drawn on a chart, or audited.</p>
+          <p style="font-size:12px"><strong>Findings link many-to-many here.</strong> A root canal and a crown both carry a row on tooth 46 pointing at the same caries &mdash; one finding, two procedures &mdash; with no third table needed.</p>
         </div>
       </div>
     </div>
@@ -1471,7 +1488,7 @@
 
   <footer>
     <span>KPX · Design / core-entities</span>
-    <span>35 entities · 8 domains</span>
+    <span>36 entities · 8 domains</span>
   </footer>
 
 </div>

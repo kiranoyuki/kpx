@@ -304,13 +304,45 @@ Proposed ──► Accepted ──► Scheduled ──► InProgress ──► C
 - Staff and dates are **not** here — they live on `ProcedureSession`, because different sessions can be worked by different assistants.
 
 **Relationships**
+- 1–N → `ProcedureDecision` (how it reached its current status, and why)
 - 1–N → `ProcedureSession` (the visits that deliver it, and the unit of billing)
 - 1–N → `ProcedureTooth`
 - 1–N → `ProcedureSupplyList`
-- 1–N → `ToothCondition` (both `observedDuringProcedureId` and `resolvedByProcedureId`)
+- 1–N → `ToothCondition.observedDuringProcedureId` (findings charted during this visit)
 - N–1 → `MaterialOption` (optional)
 
 > The tooth a procedure treats lives in `ProcedureTooth`, never in `doctorNote`. Free-text "#46" cannot be counted, priced, charted or audited.
+
+---
+
+### ProcedureDecision
+An append-only log of every status change a procedure passes through — who decided, when, and why. This is the clinic's defensive record. It answers, years later: *what did we recommend, what did the patient agree to, and what did they refuse?*
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| procedureId | UUID | FK → TreatmentProcedure |
+| fromStatus | enum | nullable — null on the first entry, when the procedure is created |
+| toStatus | enum | the status moved to |
+| decidedBy | UUID | FK → User — the staff member who **recorded** it |
+| decidedAt | timestamp | |
+| reason | text | **required** for `Declined` and `Skipped` |
+| riskExplained | bool | nullable — on a refusal, whether the consequence was explained to the patient |
+| note | text | |
+
+Whose decision it was is carried by `toStatus`: `Accepted` and `Declined` are the **patient's**, recorded by staff; `Skipped` and `Scheduled` are clinical or operational.
+
+**Why a log rather than timestamps on the procedure.** A `declinedAt` field records only the most recent state, and treatment is routinely re-proposed. A patient declines a crown on cost grounds in March and accepts it in November after the tooth chips — with a timestamp field, that first refusal is overwritten. It is also precisely the record the clinic would want if the tooth had instead fractured. The log keeps every cycle.
+
+**Informed refusal is the point.** A documented refusal — dated, with a reason, with `riskExplained` set — is the clinic's answer when a patient later asks why a problem was not dealt with. `Declined` without a reason is a status; `Declined` with a reason and an explained risk is a defence.
+
+**Invariants**
+- Append-only. Never edited, never deleted.
+- A procedure's current `status` equals the `toStatus` of its most recent decision — the field on `TreatmentProcedure` is a cache of this log's head.
+- `Declined` and `Skipped` require a `reason`.
+
+**Relationships**
+- N–1 → `TreatmentProcedure`, `User`
 
 ---
 
@@ -437,7 +469,6 @@ A clinical finding on one tooth for one patient: what the dentist observed, when
 | observedDuringProcedureId | UUID | FK → TreatmentProcedure; nullable — the visit these findings were charted at, usually a Consultation. Groups a whole exam without needing an examination entity |
 | observedBy | UUID | FK → User (the clinician who charted it) |
 | observedAt | timestamp | |
-| resolvedByProcedureId | UUID | FK → TreatmentProcedure; nullable — the work that dealt with it |
 | resolvedAt | timestamp | nullable |
 
 **`conditionType` values**, grouped by what they describe:
@@ -453,10 +484,10 @@ Pathology and restorations sit in one enum deliberately: a dentist charting a mo
 **Invariants**
 - `surfaces` must be a subset of that tooth's `validSurfaces` — an `O` on an incisor is nonsense and should be rejected.
 - Whole-tooth findings (`Missing`, `Unerupted`, `Impacted`, `Implant`, `Crown`, `Denture`) carry `surfaces = null`.
-- `status = Resolved` requires `resolvedAt`.
+- `status = Resolved` requires `resolvedAt`. Resolution is confirmed by the clinician, and normally follows the last procedure addressing it reaching Completed.
 - **Rows are append-only.** A finding recorded in error is marked `EnteredInError`, never deleted or edited — a clinical record has to show what was believed at the time, and by whom.
 
-> The link from finding to treatment is `resolvedByProcedureId`. That is what lets the chart answer "we found caries on 46 in March — what did we do about it, and when?", which is the question an audit or a second opinion actually asks.
+> **A finding links to treatment through `ProcedureTooth.addressesConditionId`, not a field here.** That inversion is what allows *one finding to need several procedures* — deep caries on 46 requiring a root canal and then a crown is two procedures, each with a `ProcedureTooth` row on 46 pointing at the same finding. It also still allows one procedure to resolve many findings: a full-mouth scaling has a `ProcedureTooth` row per tooth, each addressing that tooth's calculus. The relationship is many-to-many in both directions, with no extra junction table, because `ProcedureTooth` already *is* the (procedure × tooth) junction and a finding is tooth-scoped.
 
 **What may write to the record**
 
@@ -477,8 +508,6 @@ A proposal is a *drawing*, not a fact. The chart shows three layers, and only on
 
 For a single-session procedure — most of them — the final session *is* the session, so "completed session updates the record" holds exactly. For a multi-session crown, the `Crown` condition appears when it is cemented, not when the tooth is prepared.
 
-> **Cardinality of `resolvedByProcedureId`.** Because the FK sits on the condition, **many findings may point at one procedure** — one full-mouth scaling resolves calculus on twenty teeth. The reverse is not expressible: a single finding needing several procedures (deep caries requiring a root canal *and* a crown) must point at whichever procedure completes its treatment. The chart stays correct throughout; only the audit trail loses the detail that two procedures shared the work. A junction table would add it later without disturbing existing rows.
-
 > **The dental exam needs no entity of its own.** An exam is already a `TreatmentProcedure` of a Consultation category: billable, dated, attributed to a doctor. `observedDuringProcedureId` groups the findings charted at it. One nullable FK does the work of a whole `DentalExamination` table, and the exam gets billed through the same path as every other piece of work.
 
 **Relationships**
@@ -496,6 +525,7 @@ Which teeth — and which surfaces — a `TreatmentProcedure` addresses. A junct
 | procedureId | UUID | FK → TreatmentProcedure |
 | toothCode | string | FK → Tooth |
 | surfaces | string | nullable — canonical-ordered subset of `validSurfaces`; null when the whole tooth is treated |
+| addressesConditionId | UUID | FK → ToothCondition; nullable — **the finding this work is treating** |
 | role | enum | nullable — Primary, Abutment, Pontic |
 | note | text | |
 
@@ -514,6 +544,8 @@ Unique on (`procedureId`, `toothCode`).
 A single column would be wrong the first time someone plans a bridge. `role` is what makes the bridge case legible: which teeth carry the load and which one is the replacement.
 
 > A `TreatmentPlan` needs no tooth column of its own — the teeth it covers are the union of its procedures' `ProcedureTooth` rows.
+
+> **`addressesConditionId` is what carries the clinical *why*.** Because this table is already the (procedure × tooth) junction, hanging the finding here gives a full many-to-many link with no third table: several procedures may address one finding, and one procedure may address several. The one shape it cannot express is two separate findings on the *same* tooth treated by a single procedure — in practice those are charted as one finding with combined surfaces.
 
 **Relationships**
 - N–1 → `TreatmentProcedure`, `Tooth`
