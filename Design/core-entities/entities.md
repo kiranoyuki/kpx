@@ -180,7 +180,6 @@ A scheduled visit linking a patient to a doctor at a specific time.
 | type | enum | Consultation, Procedure, Followup |
 | status | enum | Scheduled, Confirmed, InProgress, Completed, Cancelled, NoShow |
 | bookingChannel | enum | Online, FrontDesk, Phone — Online bookings are the ones that create Provisional people and need the no-show chase |
-| treatmentProcedureId | UUID | FK → TreatmentProcedure; nullable (consultation has none) |
 | assistantId | UUID | FK → StaffProfile; nullable — assistant assigned to this visit |
 | followedUpBy | UUID | FK → User (Receptionist); nullable — receptionist whose follow-up contact led to this booking |
 | notes | text | receptionist or doctor notes |
@@ -190,9 +189,11 @@ A scheduled visit linking a patient to a doctor at a specific time.
 **Relationships**
 - N–1 → `User` (the person the appointment is with)
 - N–1 → `StaffProfile` (doctor)
+- 1–N → `ProcedureSession` — **what was actually done at this visit**, one row per procedure worked on
 - N–1 → `StaffProfile` (assistant, optional)
-- N–1 → `TreatmentProcedure` (optional)
 - 1–N → `Notification` (reminders)
+
+> A visit routinely covers more than one procedure — a filling and a scale in the same chair — so the work done is a list of `ProcedureSession` rows, not a single foreign key on the appointment.
 
 > `followedUpBy` is the key field for receptionist follow-up KPI: a completed `Followup`-type appointment with `followedUpBy` set counts as a successful returning-patient acquisition for that receptionist.
 
@@ -245,6 +246,7 @@ The top-level clinical record for a course of treatment.
 | title | string | e.g., "Lower implant — Q3 2026" |
 | status | enum | Draft, PendingApproval, Active, Completed, Cancelled |
 | isSpecial | bool | derived from procedures; if true, requires SpecialProcedureProposal approval |
+| paymentMode | enum | **Upfront, PerSession** — what was agreed with the patient. Upfront bills accepted procedures in advance; PerSession bills each completed session as it happens |
 | startDate | date | nullable |
 | estimatedEndDate | date | nullable |
 | notes | text | |
@@ -260,28 +262,53 @@ The top-level clinical record for a course of treatment.
 ---
 
 ### TreatmentProcedure
-An individual step or session within a treatment plan.
+One clinically distinct step within a plan — a filling, an extraction, a crown. A procedure may take **several sessions** to deliver, and the clinic is paid per session, not per procedure.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
 | treatmentPlanId | UUID | FK → TreatmentPlan |
 | serviceCategoryId | UUID | FK → ServiceCategory |
+| materialOptionId | UUID | FK → MaterialOption; nullable — **required** when the category sets `requiresMaterialChoice`. This is the patient's choice, and it changes the price |
 | instructionSetId | UUID | FK → ProcedureInstruction; nullable |
 | sequence | int | order within the plan |
-| status | enum | Planned, Scheduled, InProgress, Completed, Skipped |
-| doctorNote | text | instructions for next session |
-| assistantId | UUID | FK → StaffProfile; nullable — assistant who worked this procedure (used for commission) |
-| scheduledDate | date | nullable |
-| completedDate | date | nullable |
+| status | enum | Proposed, Accepted, Declined, Scheduled, InProgress, Completed, Skipped |
+| plannedSessions | int | default 1 — how many visits this is expected to take |
+| unitPrice | decimal | nullable until work starts — resolved from `PriceList` when the **first session completes**, then held for the life of the procedure |
+| doctorNote | text | instructions for the next session |
+| completedDate | date | nullable — set when the final session completes |
+
+**Status lifecycle**
+
+```
+Proposed ──► Accepted ──► Scheduled ──► InProgress ──► Completed
+    │
+    └──────► Declined
+```
+
+| Status | Meaning |
+|--------|---------|
+| Proposed | The doctor recommended it; the patient has not decided. Draws on the chart as planned work. |
+| Accepted | The patient agreed. Now schedulable and billable. |
+| Declined | The patient said no. **Never produces an invoice line.** |
+| Scheduled · InProgress · Completed | Being delivered — see `ProcedureSession` |
+| Skipped | Clinically no longer needed, e.g. the tooth was extracted so the planned filling is moot |
+
+> Patient acceptance and manager approval are **different gates**. Acceptance lives here on `status`; manager approval for special or discounted work lives on `SpecialProcedureProposal` and `DiscountProposal`.
+
+**Invariants**
+- `unitPrice` is resolved **once**, at the first completed session, and never re-resolved. A price rise applies to new procedures, not to one already under way — a patient mid-root-canal should not see the rate move between visits.
+- `materialOptionId` must belong to this procedure's `serviceCategoryId`.
+- Only an `Accepted` procedure may be scheduled or started.
+- `Completed` requires every one of its sessions to be Completed.
+- Staff and dates are **not** here — they live on `ProcedureSession`, because different sessions can be worked by different assistants.
 
 **Relationships**
-- 1–N → `ProcedureTooth` (which teeth and surfaces this addresses)
-- 1–N → `TreatmentProgress`
-- 1–N → `Appointment`
+- 1–N → `ProcedureSession` (the visits that deliver it, and the unit of billing)
+- 1–N → `ProcedureTooth`
 - 1–N → `ProcedureSupplyList`
-- 1–N → `CommissionEntry` (one for doctor, one for assistant on completion)
-- 1–N → `ToothCondition.resolvedByProcedureId` (the findings this work dealt with)
+- 1–N → `ToothCondition` (both `observedDuringProcedureId` and `resolvedByProcedureId`)
+- N–1 → `MaterialOption` (optional)
 
 > The tooth a procedure treats lives in `ProcedureTooth`, never in `doctorNote`. Free-text "#46" cannot be counted, priced, charted or audited.
 
@@ -303,18 +330,38 @@ Reusable instruction templates that a doctor can define per procedure type.
 
 ---
 
-### TreatmentProgress
-A timestamped log entry recording what happened during a procedure session.
+### ProcedureSession
+One visit's worth of work on a procedure — **and the unit at which the clinic gets paid.** This replaces the former `TreatmentProgress`, which already described itself as "what happened during a procedure session"; it now carries the session's identity, staff and money alongside its clinical notes.
+
+Every procedure has at least one session, even a single-visit filling. That keeps one billing rule with no special cases: **one completed session, one invoice line.**
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
 | procedureId | UUID | FK → TreatmentProcedure |
-| loggedBy | UUID | FK → User (Doctor or Assistant) |
-| loggedAt | timestamp | |
-| progressNote | text | |
-| vitals | json | pulse, blood pressure, etc.; nullable |
-| nextStepNote | text | doctor's note for next session |
+| sessionNumber | int | 1, 2, 3 … within the procedure |
+| appointmentId | UUID | FK → Appointment; nullable — the visit it happened at |
+| status | enum | Scheduled, Completed, Cancelled |
+| performedBy | UUID | FK → StaffProfile — the doctor for **this** session |
+| assistantId | UUID | FK → StaffProfile; nullable — the assistant for **this** session |
+| billableAmount | decimal | the portion of the procedure's total falling due after this session |
+| completedAt | timestamp | nullable |
+| progressNote | text | what was done |
+| vitals | json | pulse, blood pressure, …; nullable |
+| nextStepNote | text | instructions for the next session |
+
+**Invariants**
+- `sessionNumber` is unique within a procedure.
+- The sum of `billableAmount` across a procedure's sessions equals the procedure total (`unitPrice` × billable quantity). An even split is the default; a doctor may weight it — an implant is commonly 60% at fixture placement and 40% at the crown.
+- `status = Completed` requires `completedAt` and `performedBy`.
+- A session may only be completed on an `Accepted` procedure.
+
+> **Why sessions rather than the appointment itself.** A single visit often covers more than one procedure — a filling and a scale in the same chair. Hanging work off `Appointment` with one FK could only ever record one of them. Sessions invert the link: an appointment has many sessions, each pointing at its own procedure, so "what happened at this visit" is a list rather than a single value.
+
+**Relationships**
+- N–1 → `TreatmentProcedure`, `Appointment`, `StaffProfile` (performer and assistant)
+- 0–1 → `InvoiceLine` (created when the session completes)
+- 1–N → `CommissionEntry` (one for the doctor, one for the assistant on this session)
 
 ---
 
@@ -387,6 +434,7 @@ A clinical finding on one tooth for one patient: what the dentist observed, when
 | status | enum | Active, Monitoring, Resolved, EnteredInError |
 | severity | enum | nullable — Mild, Moderate, Severe |
 | note | text | |
+| observedDuringProcedureId | UUID | FK → TreatmentProcedure; nullable — the visit these findings were charted at, usually a Consultation. Groups a whole exam without needing an examination entity |
 | observedBy | UUID | FK → User (the clinician who charted it) |
 | observedAt | timestamp | |
 | resolvedByProcedureId | UUID | FK → TreatmentProcedure; nullable — the work that dealt with it |
@@ -409,6 +457,8 @@ Pathology and restorations sit in one enum deliberately: a dentist charting a mo
 - **Rows are append-only.** A finding recorded in error is marked `EnteredInError`, never deleted or edited — a clinical record has to show what was believed at the time, and by whom.
 
 > The link from finding to treatment is `resolvedByProcedureId`. That is what lets the chart answer "we found caries on 46 in March — what did we do about it, and when?", which is the question an audit or a second opinion actually asks.
+
+> **The dental exam needs no entity of its own.** An exam is already a `TreatmentProcedure` of a Consultation category: billable, dated, attributed to a doctor. `observedDuringProcedureId` groups the findings charted at it. One nullable FK does the work of a whole `DentalExamination` table, and the exam gets billed through the same path as every other piece of work.
 
 **Relationships**
 - N–1 → `PatientProfile`, `Tooth`
@@ -462,6 +512,8 @@ The catalog of dental services/procedures the clinic offers.
 | isSpecial | bool | true = requires manager approval to include in a plan |
 | toothScope | enum | **None, SingleTooth, MultiTooth, Quadrant, Arch, FullMouth** — how many teeth this service applies to, and therefore how many `ProcedureTooth` rows a procedure of this type must carry |
 | pricingBasis | enum | **PerProcedure, PerTooth, PerSurface, PerQuadrant** — what the `PriceList` unit price is charged *per* |
+| requiresMaterialChoice | bool | true when the patient must pick a `MaterialOption` — a crown must, a consultation must not |
+| resultingConditionType | enum | nullable — the `ToothCondition` this service leaves behind when completed (Filling, Crown, Implant, Missing …), so the chart updates itself rather than being re-drawn by hand |
 | isActive | bool | |
 | displayOrder | int | for patient-facing ordering |
 
@@ -495,11 +547,44 @@ Versioned price per service category, set by the manager.
 |-------|------|-------|
 | id | UUID | PK |
 | serviceCategoryId | UUID | FK → ServiceCategory |
+| materialOptionId | UUID | FK → MaterialOption; **nullable — null is the category's base price**, a value prices that specific material |
 | unitPrice | decimal | |
 | currency | string | default "VND" |
 | effectiveFrom | date | allows historical invoicing |
 | setBy | UUID | FK → User (Manager) |
 | notes | text | optional rationale |
+
+Unique on (`serviceCategoryId`, `materialOptionId`, `effectiveFrom`) — one price per material per start date.
+
+**Resolution order.** For a service, a material and a date: take the row matching both the category *and* the material with the greatest `effectiveFrom` on or before that date. If none exists, fall back to the category's base row (`materialOptionId` null). So a new material can be added without repricing everything, and a material without its own row simply costs the base price.
+
+---
+
+### MaterialOption
+A material or product choice within a service, priced separately. A crown is a crown, but zirconia and porcelain-fused-metal are not the same money — and it is the patient who chooses.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| serviceCategoryId | UUID | FK → ServiceCategory |
+| name | string | "Zirconia", "Porcelain-fused-metal", "Osstem TS III", "Ceramic bracket" |
+| description | text | patient-facing — this is a choice they are asked to make, so it has to read plainly |
+| isActive | bool | retire an option without disturbing the procedures that used it |
+| displayOrder | int | |
+
+| Service | Typical options |
+|---------|-----------------|
+| Porcelain Crown | Porcelain-fused-metal · Zirconia · E-max |
+| Composite Filling | Standard composite · Premium nano-composite |
+| Dental Implant | Osstem · Dentium · Straumann |
+| Orthodontic Braces | Metal · Ceramic · Clear aligner |
+
+> **Why not just separate service categories.** "Zirconia Crown" and "PFM Crown" as two categories duplicates `isSpecial`, `toothScope`, `pricingBasis`, `resultingConditionType` and the instruction templates — and the catalogue doubles again every time a new implant brand arrives. Keeping the clinical service in one row and varying only the material keeps the two axes independent: clinical rules on `ServiceCategory`, commercial choice here.
+
+**Relationships**
+- N–1 → `ServiceCategory`
+- 1–N → `PriceList` (its own versioned price)
+- 1–N → `TreatmentProcedure` (the patient's recorded choice)
 
 ---
 
@@ -565,10 +650,10 @@ The billing record for a treatment plan.
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| treatmentPlanId | UUID | FK → TreatmentPlan |
+| treatmentPlanId | UUID | FK → TreatmentPlan — **no longer unique**, so a long course can be billed in stages |
 | patientId | UUID | FK → PatientProfile |
 | issuedAt | timestamp | |
-| subtotal | decimal | sum of procedure prices |
+| subtotal | decimal | **sum of its `InvoiceLine.lineTotal`** — derivable and auditable, not a bare figure |
 | discountAmount | decimal | from Promotion or approved DiscountProposal |
 | total | decimal | subtotal − discountAmount |
 | status | enum | Draft, Issued, PartiallyPaid, Paid, Overdue, Voided |
@@ -576,8 +661,49 @@ The billing record for a treatment plan.
 | promotionId | UUID | FK → Promotion; nullable |
 | discountProposalId | UUID | FK → DiscountProposal; nullable |
 
+> **Dropping the 1:1 with `TreatmentPlan` is what makes per-session billing possible.** A twenty-month orthodontic course cannot sit on a single invoice carried for two years while the patient pays per visit. The plan is a *clinical* container; the invoice is a *financial* document, and they do not have to line up one to one.
+
 **Relationships**
-- 1–N → `Payment`
+- 1–N → `InvoiceLine` (what is being charged for)
+- 1–N → `Payment` (what has been received)
+
+---
+
+### InvoiceLine
+One billable item, frozen at the moment the invoice is issued. This is the join between clinical work and money.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| invoiceId | UUID | FK → Invoice |
+| sessionId | UUID | FK → ProcedureSession; nullable — set when billing a completed session |
+| procedureId | UUID | FK → TreatmentProcedure; nullable — set when billing a whole procedure up front |
+| description | string | **snapshot** — "Porcelain crown (Zirconia) — tooth 24" |
+| toothCodes | string | **snapshot** — "24", or "14, 15, 16" for a bridge; null when not tooth-specific |
+| surfaces | string | **snapshot** — "MOD"; null when not surface-specific |
+| unitPrice | decimal | **snapshot** of the resolved price, material included |
+| quantity | decimal | **snapshot** — 1, the tooth count, or the surface count, per `pricingBasis` |
+| lineTotal | decimal | what this line charges |
+| issuedAt | timestamp | |
+
+**Every descriptive field is a snapshot, deliberately.** Clinical records get amended — `ToothCondition` carries `EnteredInError` precisely because corrections happen. If an invoice were a live view over procedures, correcting a tooth number next month would silently change a bill already issued and paid. Freezing the line decouples the financial record from the clinical one.
+
+**The two billing modes**, following `TreatmentPlan.paymentMode`:
+
+| Mode | Line references | Created when |
+|------|-----------------|--------------|
+| PerSession | `sessionId` | each session completes; `lineTotal` = that session's `billableAmount` |
+| Upfront | `procedureId` | the patient accepts; `lineTotal` = the procedure's full total |
+
+**Invariants**
+- Exactly one of `sessionId` or `procedureId` is set.
+- A line may only come from a **Completed** session, or an **Accepted** procedure when paying up front. A `Declined` procedure can never produce one.
+- Lines are immutable once the invoice leaves `Draft`. A correction is a credit line or a new invoice, never an edit.
+- No session is billed twice: at most one line per `sessionId`.
+
+**Relationships**
+- N–1 → `Invoice`
+- N–1 → `ProcedureSession` *or* `TreatmentProcedure`
 
 ---
 
@@ -801,8 +927,8 @@ A single earned commission for any commissionable staff member. One unified reco
 |-------|------|-------|
 | id | UUID | PK |
 | staffId | UUID | FK → StaffProfile |
-| sourceType | enum | ProcedureCompleted \| ReceptionistEvent |
-| procedureId | UUID | FK → TreatmentProcedure; nullable — set when sourceType = ProcedureCompleted |
+| sourceType | enum | SessionCompleted \| ReceptionistEvent |
+| sessionId | UUID | FK → ProcedureSession; nullable — set when sourceType = SessionCompleted |
 | performanceLogId | UUID | FK → ReceptionistPerformanceLog; nullable — set when sourceType = ReceptionistEvent |
 | commissionRuleId | UUID | FK → CommissionRule (rule in effect at earnedAt date) |
 | commissionBase | decimal | snapshot of the base value the rule was applied to (procedure price or first invoice total) |
@@ -813,6 +939,7 @@ A single earned commission for any commissionable staff member. One unified reco
 
 **Invariants**
 - Exactly the FK its `sourceType` names is set; the other is null.
+- Commission is earned **per completed session**, matching the granularity at which the clinic is paid. `ProcedureSession` carries its own `performedBy` and `assistantId`, so a procedure whose sessions were worked by different assistants attributes each one correctly — which a procedure-level entry could not.
 - **No staff member earns commission on their own treatment.** An entry may not be created where the `staffId` resolves to the same `User` as the patient on the procedure's `TreatmentPlan`. This applies to the doctor and the assistant alike.
 
 > Staff are permitted to be treated at the clinic — the rule is only about payment. If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient.

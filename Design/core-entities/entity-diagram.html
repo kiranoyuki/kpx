@@ -362,9 +362,9 @@
   <header class="mast">
     <div class="eyebrow">KPX · Dental Clinic Management</div>
     <h1>Entity Map</h1>
-    <p class="deck">The data model behind KPX — 33 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
+    <p class="deck">The data model behind KPX — 35 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
     <div class="stats">
-      <div class="stat"><b>33</b><span>Entities</span></div>
+      <div class="stat"><b>35</b><span>Entities</span></div>
       <div class="stat"><b>8</b><span>Domains</span></div>
       <div class="stat"><b>6</b><span>Roles</span></div>
       <div class="stat"><b>6</b><span>Diagrams</span></div>
@@ -598,11 +598,11 @@
   <!-- ============ 3. CLINICAL SPINE ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">03</span><h2>How a patient becomes revenue</h2></div>
-    <p class="sec-lede">The operational spine. Every clinical and billing entity hangs off this path, and <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">TreatmentPlan</code> is the anchor — a patient may run several plans over time, and each one carries its own procedures, discounts and invoice.</p>
+    <p class="sec-lede">The operational spine. <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">TreatmentPlan</code> is the clinical anchor, but <strong>the session is where money is recognised</strong> — the clinic is paid as each visit's work completes, not when a whole procedure finishes.</p>
 
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 1060 430" role="img" aria-label="A person books an appointment; on arrival they become a patient and a treatment plan opens; the plan breaks into procedures priced from the service catalog, which are billed on an invoice and settled by payments.">
+        <svg viewBox="0 0 1060 452" role="img" aria-label="A person books an appointment which opens a treatment plan; the plan breaks into procedures, each delivered over one or more sessions; every completed session produces an invoice line, which rolls up into an invoice settled by payments. Service category, material choice and price list all feed the procedure.">
           <defs>
             <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
@@ -612,88 +612,95 @@
             </marker>
           </defs>
 
-          <!-- row 1 -->
-          <rect class="box-c" x="50"  y="80" width="180" height="54" rx="3"/>
-          <text class="n" x="140" y="103" text-anchor="middle">User</text>
-          <text class="sub" x="140" y="120" text-anchor="middle">person record</text>
+          <text class="tag" x="40" y="34">CLINICAL SPINE</text>
+          <line class="ln" x1="40" y1="44" x2="1010" y2="44" stroke-dasharray="2 4"/>
 
-          <rect class="box-c" x="320" y="80" width="180" height="54" rx="3"/>
-          <text class="n" x="410" y="103" text-anchor="middle">Appointment</text>
-          <text class="sub" x="410" y="120" text-anchor="middle">patient × doctor × slot</text>
+          <rect class="box-c" x="40"  y="70" width="190" height="54" rx="3"/>
+          <text class="n" x="135" y="93" text-anchor="middle">User</text>
+          <text class="sub" x="135" y="110" text-anchor="middle">person record</text>
 
-          <rect class="box-c" x="590" y="80" width="180" height="54" rx="3"/>
-          <text class="n" x="680" y="103" text-anchor="middle">TreatmentPlan</text>
-          <text class="sub" x="680" y="120" text-anchor="middle">clinical anchor</text>
+          <rect class="box-c" x="300" y="70" width="190" height="54" rx="3"/>
+          <text class="n" x="395" y="93" text-anchor="middle">Appointment</text>
+          <text class="sub" x="395" y="110" text-anchor="middle">a visit</text>
 
-          <!-- row 1 arrows -->
-          <line class="ln-c" x1="230" y1="107" x2="313" y2="107" marker-end="url(#a1c)"/>
-          <text class="lbl-em" x="271" y="99" text-anchor="middle">books</text>
-          <line class="ln-c" x1="500" y1="107" x2="583" y2="107" marker-end="url(#a1c)"/>
-          <text class="lbl-em" x="541" y="93" text-anchor="middle">opens</text>
-          <text class="lbl" x="541" y="128" text-anchor="middle">on arrival:</text>
-          <text class="lbl" x="541" y="140" text-anchor="middle">PatientProfile created</text>
+          <rect class="box-c" x="560" y="70" width="190" height="54" rx="3"/>
+          <text class="n" x="655" y="93" text-anchor="middle">TreatmentPlan</text>
+          <text class="sub" x="655" y="110" text-anchor="middle">clinical anchor</text>
 
-          <!-- down connector -->
-          <line class="ln-c" x1="680" y1="134" x2="680" y2="283" marker-end="url(#a1c)"/>
-          <text class="lbl-em" x="692" y="200" text-anchor="start">breaks into</text>
-          <text class="lbl-em" x="692" y="214" text-anchor="start">ordered steps</text>
+          <line class="ln-c" x1="230" y1="97" x2="293" y2="97" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="261" y="89" text-anchor="middle">books</text>
+          <line class="ln-c" x1="490" y1="97" x2="553" y2="97" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="521" y="89" text-anchor="middle">opens</text>
 
-          <!-- row 2 (right to left) -->
-          <rect class="box-c" x="590" y="290" width="180" height="54" rx="3"/>
-          <text class="n2" x="680" y="313" text-anchor="middle">TreatmentProcedure</text>
-          <text class="sub" x="680" y="330" text-anchor="middle">one session / step</text>
+          <line class="ln-c" x1="655" y1="124" x2="655" y2="208" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="667" y="152" text-anchor="start">breaks into</text>
+          <text class="lbl-em" x="667" y="165" text-anchor="start">procedures</text>
 
-          <rect class="box-c" x="320" y="290" width="180" height="54" rx="3"/>
-          <text class="n" x="410" y="313" text-anchor="middle">Invoice</text>
-          <text class="sub" x="410" y="330" text-anchor="middle">one per plan</text>
+          <rect class="box-c" x="560" y="215" width="190" height="54" rx="3"/>
+          <text class="n2" x="655" y="238" text-anchor="middle">TreatmentProcedure</text>
+          <text class="sub" x="655" y="255" text-anchor="middle">Proposed → Accepted</text>
 
-          <rect class="box-c" x="50"  y="290" width="180" height="54" rx="3"/>
-          <text class="n" x="140" y="313" text-anchor="middle">Payment</text>
-          <text class="sub" x="140" y="330" text-anchor="middle">many per invoice</text>
+          <rect class="box-c" x="300" y="215" width="190" height="54" rx="3"/>
+          <text class="n2" x="395" y="238" text-anchor="middle">ProcedureSession</text>
+          <text class="sub" x="395" y="255" text-anchor="middle">one visit&#8217;s work</text>
 
-          <line class="ln-c" x1="590" y1="317" x2="507" y2="317" marker-end="url(#a1c)"/>
-          <text class="lbl-em" x="548" y="309" text-anchor="middle">billed on</text>
-          <line class="ln-c" x1="320" y1="317" x2="237" y2="317" marker-end="url(#a1c)"/>
-          <text class="lbl-em" x="278" y="309" text-anchor="middle">settled by</text>
+          <line class="ln-c" x1="560" y1="242" x2="497" y2="242" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="528" y="234" text-anchor="middle">delivered</text>
+          <text class="lbl-em" x="528" y="285" text-anchor="middle">over 1&#8211;n</text>
 
-          <!-- catalog feeds -->
-          <rect class="box" x="850" y="290" width="170" height="54" rx="3"/>
-          <text class="n2" x="935" y="313" text-anchor="middle">ServiceCategory</text>
-          <text class="sub" x="935" y="330" text-anchor="middle">isSpecial flag</text>
-          <line class="ln" x1="850" y1="317" x2="777" y2="317" marker-end="url(#a1)"/>
-          <text class="lbl" x="813" y="309" text-anchor="middle">types</text>
+          <line class="ln-c" x1="395" y1="269" x2="395" y2="353" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="383" y="300" text-anchor="end">on each</text>
+          <text class="lbl-em" x="383" y="313" text-anchor="end">completion</text>
 
-          <rect class="box" x="320" y="185" width="180" height="48" rx="3"/>
-          <text class="n2" x="410" y="205" text-anchor="middle">PriceList</text>
-          <text class="sub" x="410" y="221" text-anchor="middle">versioned · effectiveFrom</text>
-          <line class="ln" x1="410" y1="233" x2="410" y2="283" marker-end="url(#a1)"/>
-          <text class="lbl" x="422" y="262" text-anchor="start">unit price at date</text>
+          <rect class="box-c" x="300" y="360" width="190" height="54" rx="3"/>
+          <text class="n2" x="395" y="383" text-anchor="middle">InvoiceLine</text>
+          <text class="sub" x="395" y="400" text-anchor="middle">frozen snapshot</text>
 
-          <path class="ln-d" d="M850 305 C 700 262, 560 250, 502 214"/>
-          <text class="lbl" x="700" y="248" text-anchor="middle">priced by category</text>
+          <rect class="box-c" x="560" y="360" width="190" height="54" rx="3"/>
+          <text class="n" x="655" y="383" text-anchor="middle">Invoice</text>
+          <text class="sub" x="655" y="400" text-anchor="middle">subtotal = &#931; lines</text>
 
-          <!-- outbound -->
-          <rect class="box-l" x="850" y="380" width="170" height="40" rx="3"/>
-          <text class="n2" x="935" y="405" text-anchor="middle">CommissionEntry</text>
-          <line class="ln-l" x1="770" y1="336" x2="845" y2="382"/>
-          <text class="lbl-lg" x="762" y="374" text-anchor="start">on complete</text>
+          <rect class="box-c" x="820" y="360" width="190" height="54" rx="3"/>
+          <text class="n" x="915" y="383" text-anchor="middle">Payment</text>
+          <text class="sub" x="915" y="400" text-anchor="middle">many per invoice</text>
 
-          <text class="tag" x="50" y="46">CLINICAL SPINE</text>
-          <line class="ln" x1="50" y1="56" x2="1020" y2="56" stroke-dasharray="2 4"/>
+          <line class="ln-c" x1="490" y1="387" x2="553" y2="387" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="521" y="379" text-anchor="middle">rolls up</text>
+          <line class="ln-c" x1="750" y1="387" x2="813" y2="387" marker-end="url(#a1c)"/>
+          <text class="lbl-em" x="781" y="379" text-anchor="middle">settled by</text>
+
+          <text class="tag" x="790" y="62">WHAT SETS THE PRICE</text>
+          <rect class="box" x="790" y="72" width="220" height="44" rx="3"/>
+          <text class="n2" x="900" y="90" text-anchor="middle">ServiceCategory</text>
+          <text class="sub" x="900" y="105" text-anchor="middle">scope &#183; pricing basis</text>
+
+          <rect class="box" x="790" y="130" width="220" height="44" rx="3"/>
+          <text class="n2" x="900" y="148" text-anchor="middle">MaterialOption</text>
+          <text class="sub" x="900" y="163" text-anchor="middle">the patient&#8217;s choice</text>
+
+          <rect class="box" x="790" y="188" width="220" height="44" rx="3"/>
+          <text class="n2" x="900" y="206" text-anchor="middle">PriceList</text>
+          <text class="sub" x="900" y="221" text-anchor="middle">category &#215; material &#215; date</text>
+
+          <path class="ln" d="M790 94 C 772 94, 768 210, 757 232" marker-end="url(#a1)"/>
+          <path class="ln" d="M790 152 C 776 152, 770 220, 757 240" marker-end="url(#a1)"/>
+          <path class="ln" d="M790 210 C 778 210, 772 232, 757 248" marker-end="url(#a1)"/>
+          <text class="lbl" x="770" y="270" text-anchor="middle">unitPrice locked</text>
+          <text class="lbl" x="770" y="283" text-anchor="middle">at first session</text>
         </svg>
       </div>
-      <figcaption><b>The revenue path.</b> Serpentine: left-to-right along the top as care is planned, then right-to-left along the bottom as it is delivered and billed. The dashed line marks a lookup rather than a flow — the catalog supplies the price, it is not part of the patient's journey.</figcaption>
+      <figcaption><b>The revenue path, and where money is recognised.</b> A procedure is a clinical step; a <b>session</b> is one visit&rsquo;s worth of it, and it is the session that gets billed &mdash; a root canal over three visits is paid in three parts. Every completed session produces exactly one invoice line, so the rule has no special cases. The right-hand column is a lookup, not a flow: category, material and date together resolve the unit price, which is then locked for the life of the procedure.</figcaption>
     </figure>
   </section>
 
   <!-- ============ 2. COMMISSION ENGINE ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">04</span><h2>How work becomes pay</h2></div>
-    <p class="sec-lede">Two very different events — a doctor finishing a procedure and a receptionist bringing a patient back — converge on a single <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">CommissionEntry</code> record. That convergence is the reason payroll has one calculation path instead of two.</p>
+    <p class="sec-lede">Two very different events — a clinician finishing a <strong>session</strong> and a receptionist bringing a patient back — converge on a single <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">CommissionEntry</code> record. That convergence is the reason payroll has one calculation path instead of two.</p>
 
     <figure>
       <div class="fig-scroll">
-        <svg viewBox="0 0 1060 470" role="img" aria-label="Completed procedures and receptionist performance events both create commission entries, priced by a commission rule; entries plus attendance hours and manager adjustments settle into a payroll record.">
+        <svg viewBox="0 0 1060 470" role="img" aria-label="Completed sessions and receptionist performance events both create commission entries, priced by a commission rule; entries plus attendance hours and manager adjustments settle into a payroll record.">
           <defs>
             <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0 0L10 5L0 10z" fill="var(--rule-2)"/>
@@ -715,7 +722,7 @@
 
           <!-- triggers -->
           <rect class="box-c" x="40" y="160" width="230" height="60" rx="3"/>
-          <text class="n2" x="155" y="184" text-anchor="middle">TreatmentProcedure</text>
+          <text class="n2" x="155" y="184" text-anchor="middle">ProcedureSession</text>
           <text class="sub" x="155" y="201" text-anchor="middle">status → Completed</text>
 
           <rect class="box-c" x="40" y="292" width="230" height="60" rx="3"/>
@@ -742,7 +749,7 @@
 
           <!-- arrows in -->
           <path class="ln-c" d="M270 190 C 330 190, 340 232, 393 238" marker-end="url(#a2l)"/>
-          <text class="lbl" x="300" y="176" text-anchor="start">ProcedureCompleted ×2</text>
+          <text class="lbl" x="300" y="176" text-anchor="start">SessionCompleted ×2</text>
           <text class="lbl" x="300" y="190" text-anchor="start">(doctor + assistant)</text>
 
           <path class="ln-c" d="M270 322 C 330 322, 340 278, 393 270" marker-end="url(#a2l)"/>
@@ -774,7 +781,7 @@
           <text class="tag" x="790" y="24">SETTLEMENT</text>
         </svg>
       </div>
-      <figcaption><b>One ledger, two doors.</b> <code>sourceType</code> is what makes the convergence work — it says which of the two nullable foreign keys is populated. The dashed line is the correction path: a debit adjustment can point back at the exact commission entry it reverses.</figcaption>
+      <figcaption><b>One ledger, two doors.</b> <code>sourceType</code> is what makes the convergence work — it says which of the two nullable foreign keys is populated. Commission is earned per <em>session</em>, matching the granularity at which the clinic is paid: a session carries its own performer and assistant, so a procedure worked by different assistants across visits attributes each one correctly. The dashed line is the correction path: a debit adjustment can point back at the exact commission entry it reverses.</figcaption>
     </figure>
   </section>
 
@@ -926,7 +933,7 @@
   <!-- ============ ENTITY INDEX ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">07</span><h2>Complete entity index</h2></div>
-    <p class="sec-lede">All 33 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
+    <p class="sec-lede">All 35 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
 
     <div class="domain clinical">
       <div class="domain-head"><h3>Identity &amp; Access</h3><span class="domain-count">3 entities</span></div>
@@ -1017,8 +1024,7 @@
             <li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
             <li>assistantId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">nullable</span></li>
             <li>followedUpBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
-            <li>treatmentProcedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
-            <li>createdBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">null = self-booked</span></li>
+                        <li>createdBy <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">null = self-booked</span></li>
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums">
@@ -1026,6 +1032,7 @@
             <span class="enum"><b>booking_channel</b> Online · FrontDesk · Phone</span>
             <span class="enum"><b>status</b> Scheduled · Confirmed · InProgress · Completed · Cancelled · NoShow</span>
           </div>
+          <p style="font-size:12px">What was <em>done</em> at a visit is its <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">ProcedureSession</code> rows &mdash; a visit routinely covers more than one procedure, which a single FK could never record.</p>
         </div>
       </div>
     </div>
@@ -1066,20 +1073,29 @@
             <li>doctorId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
           </ul>
           <div class="rel-label">Enums</div>
-          <div class="enums"><span class="enum"><b>status</b> Draft · PendingApproval · Active · Completed · Cancelled</span></div>
+          <div class="enums">
+            <span class="enum"><b>status</b> Draft · PendingApproval · Active · Completed · Cancelled</span>
+            <span class="enum"><b>payment_mode</b> Upfront · PerSession</span>
+          </div>
         </div>
         <div class="card">
           <div class="card-top"><h4>TreatmentProcedure</h4></div>
-          <p>One ordered step within a plan. Completion is what triggers commission.</p>
+          <p>One clinical step in a plan. May take <strong>several sessions</strong> to deliver &mdash; the sessions, not this record, are what get billed.</p>
           <div class="rel-label">Foreign keys</div>
           <ul class="fk">
             <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span></li>
             <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span></li>
+            <li>materialOptionId <span class="arw">→</span> <span class="tgt">MaterialOption</span> <span class="nul">nullable &middot; patient's choice</span></li>
             <li>instructionSetId <span class="arw">→</span> <span class="tgt">ProcedureInstruction</span> <span class="nul">nullable</span></li>
-            <li>assistantId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk">
+            <li>planned_sessions <span class="nul">default 1</span></li>
+            <li>unit_price <span class="nul">locked at first session</span></li>
           </ul>
           <div class="rel-label">Enums</div>
-          <div class="enums"><span class="enum"><b>status</b> Planned · Scheduled · InProgress · Completed · Skipped</span></div>
+          <div class="enums"><span class="enum"><b>status</b> Proposed &middot; Accepted &middot; Declined &middot; Scheduled &middot; InProgress &middot; Completed &middot; Skipped</span></div>
+          <p style="font-size:12px">Acceptance is the <em>patient&rsquo;s</em> gate; <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">SpecialProcedureProposal</code> is the manager&rsquo;s. A price rise never moves a procedure already under way.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>ProcedureInstruction</h4></div>
@@ -1091,13 +1107,23 @@
           </ul>
         </div>
         <div class="card">
-          <div class="card-top"><h4>TreatmentProgress</h4></div>
-          <p>Timestamped log of what happened in a session, including vitals.</p>
+          <div class="card-top"><h4>ProcedureSession</h4><span class="lock">Billing unit</span></div>
+          <p>One visit&rsquo;s work on a procedure &mdash; <strong>and the unit the clinic is paid at</strong>. Replaces TreatmentProgress, which already described itself as a session record.</p>
           <div class="rel-label">Foreign keys</div>
           <ul class="fk">
             <li>procedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span></li>
-            <li>loggedBy <span class="arw">→</span> <span class="tgt">User</span></li>
+            <li>appointmentId <span class="arw">→</span> <span class="tgt">Appointment</span> <span class="nul">nullable</span></li>
+            <li>performedBy <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
+            <li>assistantId <span class="arw">→</span> <span class="tgt">StaffProfile</span> <span class="nul">nullable</span></li>
           </ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk">
+            <li>session_number, billable_amount</li>
+            <li>progress_note, vitals, next_step_note</li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Scheduled &middot; Completed &middot; Cancelled</span></div>
+          <p style="font-size:12px">Every procedure has at least one, so the rule has no special cases: <strong>one completed session, one invoice line.</strong> Staff sit here rather than on the procedure &mdash; different visits can have different assistants.</p>
         </div>
       </div>
     </div>
@@ -1158,7 +1184,7 @@
     </div>
 
     <div class="domain clinical">
-      <div class="domain-head"><h3>Catalog &amp; Pricing</h3><span class="domain-count">5 entities</span></div>
+      <div class="domain-head"><h3>Catalog &amp; Pricing</h3><span class="domain-count">6 entities</span></div>
       <div class="cards">
         <div class="card">
           <div class="card-top"><h4>ServiceCategory</h4></div>
@@ -1167,17 +1193,34 @@
           <div class="enums">
             <span class="enum"><b>tooth_scope</b> None &middot; SingleTooth &middot; MultiTooth &middot; Quadrant &middot; Arch &middot; FullMouth</span>
             <span class="enum"><b>pricing_basis</b> PerProcedure &middot; PerTooth &middot; PerSurface &middot; PerQuadrant</span>
+            <span class="enum"><b>requires_material_choice</b> bool</span>
+            <span class="enum"><b>resulting_condition_type</b> Filling &middot; Crown &middot; Implant &middot; Missing &hellip;</span>
           </div>
           <p style="font-size:12px"><strong>This changes invoice arithmetic.</strong> Subtotal becomes unit price &times; billable quantity &mdash; the ProcedureTooth count, or the surface count. A two-surface filling and a three-surface filling are not the same money.</p>
         </div>
         <div class="card">
+          <div class="card-top"><h4>MaterialOption</h4></div>
+          <p>A material choice within a service, priced separately. A crown is one clinical service, but zirconia and PFM are not the same money &mdash; and the <strong>patient chooses</strong>.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk"><li>serviceCategoryId <span class="arw">&rarr;</span> <span class="tgt">ServiceCategory</span></li></ul>
+          <div class="rel-label">Examples</div>
+          <ul class="fk">
+            <li>Crown <span class="nul">PFM &middot; Zirconia &middot; E-max</span></li>
+            <li>Implant <span class="nul">Osstem &middot; Dentium &middot; Straumann</span></li>
+            <li>Braces <span class="nul">Metal &middot; Ceramic &middot; Aligner</span></li>
+          </ul>
+          <p style="font-size:12px">Not separate categories: that would duplicate tooth_scope, pricing_basis and the instruction templates, and double the catalogue with every new brand. Clinical rules on the service, commercial choice here.</p>
+        </div>
+        <div class="card">
           <div class="card-top"><h4>PriceList</h4></div>
-          <p>Time-versioned price per category, so historical invoices stay correct.</p>
+          <p>Time-versioned price per category <em>and material</em>, so historical invoices stay correct.</p>
           <div class="rel-label">Foreign keys</div>
           <ul class="fk">
             <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span></li>
+            <li>materialOptionId <span class="arw">→</span> <span class="tgt">MaterialOption</span> <span class="nul">null = base price</span></li>
             <li>setBy <span class="arw">→</span> <span class="tgt">User</span></li>
           </ul>
+          <p style="font-size:12px">Unique on (category, material, effective_from). Resolution falls back to the base row, so a new material never requires repricing everything.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>Promotion</h4></div>
@@ -1222,20 +1265,36 @@
     </div>
 
     <div class="domain clinical">
-      <div class="domain-head"><h3>Billing</h3><span class="domain-count">2 entities</span></div>
+      <div class="domain-head"><h3>Billing</h3><span class="domain-count">3 entities</span></div>
       <div class="cards">
         <div class="card">
           <div class="card-top"><h4>Invoice</h4></div>
-          <p>One per treatment plan. Both discount paths converge here.</p>
+          <p>A financial document, no longer tied 1:1 to a plan &mdash; a 20-month course bills in stages. Both discount paths converge here.</p>
           <div class="rel-label">Foreign keys</div>
           <ul class="fk">
-            <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span></li>
+            <li>treatmentPlanId <span class="arw">→</span> <span class="tgt">TreatmentPlan</span> <span class="nul">no longer unique</span></li>
             <li>patientId <span class="arw">→</span> <span class="tgt">PatientProfile</span></li>
             <li>promotionId <span class="arw">→</span> <span class="tgt">Promotion</span> <span class="nul">nullable</span></li>
             <li>discountProposalId <span class="arw">→</span> <span class="tgt">DiscountProposal</span> <span class="nul">nullable</span></li>
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums"><span class="enum"><b>status</b> Draft · Issued · PartiallyPaid · Paid · Overdue · Voided</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>InvoiceLine</h4></div>
+          <p>One billable item, <strong>frozen when the invoice is issued</strong>. The join between clinical work and money.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>invoiceId <span class="arw">&rarr;</span> <span class="tgt">Invoice</span></li>
+            <li>sessionId <span class="arw">&rarr;</span> <span class="tgt">ProcedureSession</span> <span class="nul">nullable &middot; per-session</span></li>
+            <li>procedureId <span class="arw">&rarr;</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable &middot; upfront</span></li>
+          </ul>
+          <div class="rel-label">Snapshot fields</div>
+          <ul class="fk">
+            <li>description, tooth_codes, surfaces</li>
+            <li>unit_price, quantity, line_total</li>
+          </ul>
+          <p style="font-size:12px">Snapshotted because clinical records get <em>amended</em> &mdash; that is why ToothCondition has EnteredInError. A live view would let a tooth-number correction silently change a bill already issued and paid.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>Payment</h4></div>
@@ -1361,13 +1420,13 @@
           <ul class="fk">
             <li>staffId <span class="arw">→</span> <span class="tgt">StaffProfile</span></li>
             <li>commissionRuleId <span class="arw">→</span> <span class="tgt">CommissionRule</span></li>
-            <li>procedureId <span class="arw">→</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">nullable</span></li>
+            <li>sessionId <span class="arw">→</span> <span class="tgt">ProcedureSession</span> <span class="nul">nullable</span></li>
             <li>performanceLogId <span class="arw">→</span> <span class="tgt">ReceptionistPerformanceLog</span> <span class="nul">nullable</span></li>
             <li>payrollRecordId <span class="arw">→</span> <span class="tgt">PayrollRecord</span> <span class="nul">nullable</span></li>
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums">
-            <span class="enum"><b>sourceType</b> ProcedureCompleted · ReceptionistEvent</span>
+            <span class="enum"><b>sourceType</b> SessionCompleted · ReceptionistEvent</span>
             <span class="enum"><b>status</b> Pending · IncludedInPayroll</span>
           </div>
           <div class="rel-label">Invariant</div>
@@ -1411,7 +1470,7 @@
 
   <footer>
     <span>KPX · Design / core-entities</span>
-    <span>33 entities · 8 domains</span>
+    <span>35 entities · 8 domains</span>
   </footer>
 
 </div>
