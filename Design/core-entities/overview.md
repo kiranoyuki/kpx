@@ -12,7 +12,7 @@ The system is organized into 7 domains, each grouping entities by concern.
 | Catalog & Pricing | ServiceCategory, PriceList, Promotion, DiscountProposal, SpecialProcedureProposal |
 | Billing | Invoice, Payment |
 | Inventory | InventoryItem, InventoryLog, Vendor, ProcedureSupplyList |
-| Communication & HR | Notification, PayrollRecord |
+| Communication & HR | Notification, AttendanceLog, CommissionRule, CommissionEntry, ReceptionistPerformanceLog (standalone bridge), PayrollAdjustment, PayrollRecord |
 
 ---
 
@@ -21,19 +21,47 @@ The system is organized into 7 domains, each grouping entities by concern.
 ```
 User (role: Manager | Doctor | Receptionist | Accountant | Assistant | Patient)
  ├── StaffProfile (Doctor, Manager, Receptionist, Accountant, Assistant)
- │    └── PayrollRecord
- └── PatientProfile
-      ├── HealthRecord
-      ├── PatientMedia (X-rays, CBCT, before/after photos)
-      ├── Appointment ──────────────── DoctorSchedule
-      └── TreatmentPlan
-           ├── TreatmentProcedure ─── ProcedureInstruction
-           │    └── TreatmentProgress
-           │    └── ProcedureSupplyList ── InventoryItem
+ │    ├── AttendanceLog (clock-in / clock-out per shift)
+ │    ├── CommissionEntry ←─────────────────────────────────────────────┐
+ │    ├── PayrollAdjustment [Manager-only] (credits / debits)           │
+ │    └── PayrollRecord [Manager-only]                                  │
+ │         ├── ← AttendanceLog (period totals → basePay)                │
+ │         ├── ← CommissionEntry (all roles — procedure + event based)  │
+ │         └── ← PayrollAdjustment (manual credits and debits)          │
+ └── PatientProfile                                                      │
+      ├── HealthRecord                                                   │
+      ├── PatientMedia (X-rays, CBCT, before/after photos)              │
+      ├── Appointment ──── DoctorSchedule                               │
+      │    ├── assistantId → StaffProfile                               │
+      │    └── followedUpBy → StaffProfile (Receptionist)               │
+      └── TreatmentPlan                                                 │
+           ├── TreatmentProcedure ─── ProcedureInstruction             │
+           │    ├── assistantId → StaffProfile                         │
+           │    ├── TreatmentProgress                                  │
+           │    ├── ProcedureSupplyList ── InventoryItem               │
+           │    └── ──[on complete]──► CommissionEntry (x2: doctor + assistant)
            ├── DiscountProposal (doctor → manager approval)
            ├── SpecialProcedureProposal (doctor → manager approval)
            └── Invoice
                 └── Payment
+
+ReceptionistPerformanceLog (standalone — bridges StaffProfile ↔ PatientProfile)
+ ├── receptionistId → StaffProfile
+ ├── patientId → PatientProfile
+ ├── appointmentId → Appointment (nullable)
+ └── ──[on write]──► CommissionEntry (sourceType = ReceptionistEvent) ──┘
+
+CommissionRule [Manager-only] (set by Manager — covers all commissionable roles)
+ ├── role: Doctor | Assistant | Receptionist
+ ├── serviceCategoryId → ServiceCategory (nullable, for Doctor/Assistant)
+ ├── eventType: NewPatientRegistered | SuccessfulFollowUp (nullable, for Receptionist)
+ └── staffId → StaffProfile (nullable — individual contract override)
+
+PayrollAdjustment [Manager-only] (bridges StaffProfile ↔ PayrollRecord)
+ ├── staffId → StaffProfile
+ ├── direction: Credit | Debit
+ ├── relatedCommissionEntryId → CommissionEntry (nullable — for commission clawbacks)
+ └── relatedInvoiceId → Invoice (nullable — for patient refund deductions)
 
 ServiceCategory ─── PriceList (set by Manager)
                 └── Promotion (set by Manager)
@@ -69,3 +97,26 @@ Everything clinical orbits the treatment plan: procedures, progress logs, notes,
 
 ### 7. `Notification` is a first-class entity
 Paging between staff (doctor → assistant, manager → all) is tracked as notifications, not just ephemeral pushes. This supports audit and follow-up reminders.
+
+### 8. Payroll is built from two independent streams
+`PayrollRecord.netPay = basePay + commissionTotal − deductions`. Base pay comes from `AttendanceLog` (hours-based) or a fixed monthly rate. Commission comes from `CommissionEntry` records — the same mechanism for every staff role. There is no separate "performance bonus" stream; receptionist KPI bonuses flow through `CommissionEntry` like any other commission.
+
+### 9. `CommissionRule` covers all commissionable roles with a single unified structure
+One entity replaces two separate systems. For Doctor/Assistant the rule is scoped by `serviceCategoryId`; for Receptionist it is scoped by `eventType`. A nullable `staffId` field enables individual contract rates that override the role-level defaults. Rules are time-versioned with `effectiveFrom`, and each `CommissionEntry` locks in the rule at the time the event occurred — historical payroll is never retroactively changed.
+
+### 10. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
+It is a bridge between `StaffProfile` and `PatientProfile` that records *what happened* (which receptionist brought in which patient). Commission amounts live in `CommissionEntry`, not here. This separation keeps the event record clean and auditable independently of payroll configuration. The manager can see "receptionist A registered 12 new patients this month" separately from "how much did we pay her for that."
+
+### 11. `CommissionEntry` uses `sourceType` to support two trigger paths
+- `ProcedureCompleted`: created when a `TreatmentProcedure` moves to Completed. Two entries are written — one for the doctor, one for the assistant.
+- `ReceptionistEvent`: created immediately when a `ReceptionistPerformanceLog` record is written.
+
+In both cases the commission base value (`commissionBase`) is snapshotted at creation time so the manager's payroll review always shows the exact calculation, even if prices or rules change later.
+
+### 12. Commission dashboard is Manager-only
+`CommissionRule`, `CommissionEntry`, `PayrollAdjustment`, and the full `PayrollRecord` breakdown are visible only to the Manager role. Staff see only their own net pay on their payslip — not the commission rates, individual commission entries, or adjustment reasons. This is enforced at the API permission layer, not the data model.
+
+### 13. Manual payroll adjustments are immutable once payroll is finalized
+`PayrollAdjustment` records in `Pending` status can be edited or deleted by the manager before payroll is approved. Once a payroll is finalized (`status = Approved`), all linked adjustments become `IncludedInPayroll` and are locked. Any subsequent correction requires a new offsetting adjustment in the next payroll period — there is no in-place editing of settled records. This preserves a clean audit trail for disputes or accounting review.
+
+The `direction` field (Credit / Debit) with a mandatory `reason` field means every non-system adjustment is traceable to a manager decision and a written business justification. Typical debit scenarios: patient refund caused by a procedure error (link `relatedInvoiceId`), commission clawback on a cancelled treatment (link `relatedCommissionEntryId`). Typical credit scenarios: discretionary end-of-year bonus, short-notice shift coverage.

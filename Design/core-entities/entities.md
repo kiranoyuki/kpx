@@ -37,9 +37,14 @@ Extended information for any non-patient user.
 | joinDate | date | |
 | specialty | string | nullable; relevant for Doctor (e.g., "Orthodontics") |
 | licenseNumber | string | nullable; for Doctor |
+| wageType | enum | Monthly, Hourly — determines how base pay is calculated from attendance |
+| hourlyRate | decimal | nullable; used when wageType = Hourly |
 
 **Relationships**
 - 1–N → `PayrollRecord`
+- 1–N → `AttendanceLog`
+- 1–N → `CommissionEntry`
+- 1–N → `ReceptionistPerformanceLog.receptionistId` (if role is Receptionist)
 - 1–N → `DoctorSchedule` (if role is Doctor)
 - 1–N → `Appointment.doctorId` (if role is Doctor)
 
@@ -102,6 +107,8 @@ A scheduled visit linking a patient to a doctor at a specific time.
 | type | enum | Consultation, Procedure, Followup |
 | status | enum | Scheduled, Confirmed, InProgress, Completed, Cancelled, NoShow |
 | treatmentProcedureId | UUID | FK → TreatmentProcedure; nullable (consultation has none) |
+| assistantId | UUID | FK → StaffProfile; nullable — assistant assigned to this visit |
+| followedUpBy | UUID | FK → User (Receptionist); nullable — receptionist whose follow-up contact led to this booking |
 | notes | text | receptionist or doctor notes |
 | createdBy | UUID | FK → User |
 | createdAt | timestamp | |
@@ -109,8 +116,11 @@ A scheduled visit linking a patient to a doctor at a specific time.
 **Relationships**
 - N–1 → `PatientProfile`
 - N–1 → `StaffProfile` (doctor)
+- N–1 → `StaffProfile` (assistant, optional)
 - N–1 → `TreatmentProcedure` (optional)
 - 1–N → `Notification` (reminders)
+
+> `followedUpBy` is the key field for receptionist follow-up KPI: a completed `Followup`-type appointment with `followedUpBy` set counts as a successful returning-patient acquisition for that receptionist.
 
 ---
 
@@ -187,6 +197,7 @@ An individual step or session within a treatment plan.
 | sequence | int | order within the plan |
 | status | enum | Planned, Scheduled, InProgress, Completed, Skipped |
 | doctorNote | text | instructions for next session |
+| assistantId | UUID | FK → StaffProfile; nullable — assistant who worked this procedure (used for commission) |
 | scheduledDate | date | nullable |
 | completedDate | date | nullable |
 
@@ -194,6 +205,7 @@ An individual step or session within a treatment plan.
 - 1–N → `TreatmentProgress`
 - 1–N → `Appointment`
 - 1–N → `ProcedureSupplyList`
+- 1–N → `CommissionEntry` (one for doctor, one for assistant on completion)
 
 ---
 
@@ -457,11 +469,123 @@ Monthly payroll entry for a staff member.
 | staffId | UUID | FK → StaffProfile |
 | periodStart | date | |
 | periodEnd | date | |
-| baseSalary | decimal | |
-| bonuses | decimal | |
-| deductions | decimal | |
-| netPay | decimal | computed |
+| totalHoursWorked | decimal | aggregated from `AttendanceLog` for the period |
+| basePay | decimal | fixed monthly salary OR hourlyRate × totalHoursWorked |
+| commissionTotal | decimal | sum of `CommissionEntry.amount` for the period — covers all roles |
+| totalCredits | decimal | sum of `PayrollAdjustment.amount` where direction = Credit |
+| totalDebits | decimal | sum of `PayrollAdjustment.amount` where direction = Debit |
+| netPay | decimal | basePay + commissionTotal + totalCredits − totalDebits |
 | status | enum | Draft, Approved, Paid |
 | approvedBy | UUID | FK → User (Manager); nullable |
 | paidAt | timestamp | nullable |
 | notes | text | |
+
+> **Manager-only.** The full payroll record including commission breakdown and adjustment history is visible only to the Manager role. Staff members can see their own net pay but not the individual commission entries or adjustment reasons.
+
+**Relationships**
+- 1–N → `AttendanceLog` (period snapshot reference)
+- 1–N → `CommissionEntry` (settled into this payroll — all staff types)
+- 1–N → `PayrollAdjustment` (manual credits and debits applied by manager)
+
+---
+
+### AttendanceLog
+Clock-in / clock-out record per staff per shift. Source of truth for hours-based wage calculation.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| staffId | UUID | FK → StaffProfile |
+| date | date | |
+| clockIn | timestamp | |
+| clockOut | timestamp | nullable — null means shift still open |
+| totalMinutes | int | computed on clock-out; null until then |
+| payrollRecordId | UUID | FK → PayrollRecord; nullable — set when payroll is finalized |
+| notes | text | nullable; e.g., reason for early leave |
+
+---
+
+### CommissionRule
+Configurable commission rate covering all commissionable staff roles. Set by the manager; versioned like `PriceList`. **Manager-only** — staff cannot see their own commission rates or others'.
+
+Rule matching priority (most specific wins):
+1. `staffId` + role + category/event — individual contract rate
+2. role + category/event — role-level rate for that procedure type or event
+3. role only (both `serviceCategoryId` and `eventType` null) — catch-all for that role
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| role | enum | Doctor, Assistant, Receptionist |
+| staffId | UUID | FK → StaffProfile; nullable — individual contract override, takes precedence over role-level rule |
+| serviceCategoryId | UUID | FK → ServiceCategory; nullable — for Doctor/Assistant: scopes rule to a procedure type |
+| eventType | enum | nullable — for Receptionist: NewPatientRegistered \| SuccessfulFollowUp |
+| commissionType | enum | Percentage, FixedAmount |
+| commissionValue | decimal | percentage (0–100) or fixed VND amount |
+| effectiveFrom | date | |
+| setBy | UUID | FK → User (Manager) |
+| notes | text | |
+
+---
+
+### CommissionEntry
+A single earned commission for any commissionable staff member. One unified record regardless of whether it came from a completed procedure (Doctor/Assistant) or a receptionist KPI event. Generated automatically by the system. **Manager-only** — individual commission entries are not exposed to the staff member directly.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| staffId | UUID | FK → StaffProfile |
+| sourceType | enum | ProcedureCompleted \| ReceptionistEvent |
+| procedureId | UUID | FK → TreatmentProcedure; nullable — set when sourceType = ProcedureCompleted |
+| performanceLogId | UUID | FK → ReceptionistPerformanceLog; nullable — set when sourceType = ReceptionistEvent |
+| commissionRuleId | UUID | FK → CommissionRule (rule in effect at earnedAt date) |
+| commissionBase | decimal | snapshot of the base value the rule was applied to (procedure price or first invoice total) |
+| amount | decimal | computed: rule applied to commissionBase |
+| status | enum | Pending, IncludedInPayroll |
+| payrollRecordId | UUID | FK → PayrollRecord; nullable — set when payroll is finalized |
+| earnedAt | timestamp | when the trigger event occurred |
+
+---
+
+### ReceptionistPerformanceLog
+A standalone event log recording KPI events for receptionists. Acts as the source record that triggers a `CommissionEntry` — it does not carry commission amounts itself. One record per event, linking the receptionist to the specific patient they brought in.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| receptionistId | UUID | FK → StaffProfile |
+| eventType | enum | NewPatientRegistered \| SuccessfulFollowUp |
+| patientId | UUID | FK → PatientProfile — the patient this event relates to |
+| appointmentId | UUID | FK → Appointment; nullable — the specific appointment that completed (for SuccessfulFollowUp) |
+| occurredAt | timestamp | |
+
+> **NewPatientRegistered**: written when a receptionist registers a new `PatientProfile` and that patient completes their first appointment. The `CommissionEntry` commission base is the first `Invoice.total` for that patient (supports percentage-of-revenue rules).
+
+> **SuccessfulFollowUp**: written when an `Appointment` with `type = Followup` and `followedUpBy` set reaches `status = Completed`. The receptionist credited is `followedUpBy`. Commission base is typically a flat amount.
+
+> A `CommissionEntry` (with `sourceType = ReceptionistEvent`) is created immediately after this record is written. The manager sees both the raw event and the computed commission amount at payroll review time.
+
+---
+
+### PayrollAdjustment
+A manager-created manual credit or debit applied to a staff member's payroll. Used to correct for staff mistakes, patient refunds caused by procedure errors, or exceptional bonuses not covered by commission rules. Every adjustment requires a written reason and is permanently auditable.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| staffId | UUID | FK → StaffProfile — the staff member whose payroll is affected |
+| direction | enum | Credit \| Debit |
+| amount | decimal | always positive; `direction` determines whether it adds or subtracts from netPay |
+| reason | text | mandatory — manager's written explanation (e.g., "Patient refund for botched implant procedure", "End-of-year performance bonus") |
+| relatedCommissionEntryId | UUID | FK → CommissionEntry; nullable — use when reversing a specific earned commission (e.g., commission on a refunded invoice) |
+| relatedInvoiceId | UUID | FK → Invoice; nullable — use when the cause is a specific patient refund |
+| payrollRecordId | UUID | FK → PayrollRecord; nullable — set when this adjustment is included in a finalized payroll period |
+| status | enum | Pending \| IncludedInPayroll |
+| createdBy | UUID | FK → User (Manager) |
+| createdAt | timestamp | |
+
+> **Manager-only.** Only the Manager role can create, edit, or view `PayrollAdjustment` records. Adjustments in `Pending` status can be edited or deleted before payroll is finalized. Once `IncludedInPayroll`, they become immutable — any correction requires a new offsetting adjustment.
+
+> **Typical debit scenarios:** patient refund caused by a procedure error (links `relatedInvoiceId`); commission clawback when a commission was paid on a treatment that was later cancelled (links `relatedCommissionEntryId`).
+
+> **Typical credit scenarios:** one-off end-of-year bonus; compensation for a shift covered at short notice.
