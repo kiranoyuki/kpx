@@ -362,9 +362,9 @@
   <header class="mast">
     <div class="eyebrow">KPX · Dental Clinic Management</div>
     <h1>Entity Map</h1>
-    <p class="deck">The data model behind KPX — 37 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
+    <p class="deck">The data model behind KPX — 40 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
     <div class="stats">
-      <div class="stat"><b>37</b><span>Entities</span></div>
+      <div class="stat"><b>40</b><span>Entities</span></div>
       <div class="stat"><b>8</b><span>Domains</span></div>
       <div class="stat"><b>6</b><span>Roles</span></div>
       <div class="stat"><b>6</b><span>Diagrams</span></div>
@@ -933,7 +933,7 @@
   <!-- ============ ENTITY INDEX ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">07</span><h2>Complete entity index</h2></div>
-    <p class="sec-lede">All 37 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
+    <p class="sec-lede">All 40 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
 
     <div class="domain clinical">
       <div class="domain-head"><h3>Identity &amp; Access</h3><span class="domain-count">3 entities</span></div>
@@ -1007,8 +1007,24 @@
     </div>
 
     <div class="domain clinical">
-      <div class="domain-head"><h3>Scheduling</h3><span class="domain-count">2 entities</span></div>
+      <div class="domain-head"><h3>Scheduling</h3><span class="domain-count">4 entities</span></div>
       <div class="cards">
+        <div class="card">
+          <div class="card-top"><h4>Chair</h4></div>
+          <p>A physical treatment position. <strong>Chairs, not doctors, cap the clinic&rsquo;s throughput</strong> &mdash; two dentists cannot both work if there is one chair.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk"><li>chairTypeId <span class="arw">&rarr;</span> <span class="tgt">ChairType</span></li></ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>status</b> Available &middot; Maintenance &middot; Retired</span></div>
+          <div class="rel-label">Invariant</div>
+          <p style="font-size:12px"><strong>No two appointments may occupy one chair at overlapping times.</strong> That is the whole reason this entity exists &mdash; an exclusion constraint in PostgreSQL, an application check in SQLite.</p>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>ChairType</h4><span class="lock">Reference</span></div>
+          <p>What a chair is equipped to do &mdash; Standard, Surgical, Orthodontic, Imaging, Paediatric.</p>
+          <div class="rel-label">Turns a label into a rule</div>
+          <p style="font-size:12px">An implant needs the surgical position; a scale does not. <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">ServiceCategory.required_chair_type_id</code> is <strong>nullable, and null means any chair</strong> &mdash; so the constraint is stated only where it is real.</p>
+        </div>
         <div class="card">
           <div class="card-top"><h4>DoctorSchedule</h4></div>
           <p>Recurring or one-off availability blocks the receptionist books against.</p>
@@ -1235,6 +1251,8 @@
             <span class="enum"><b>tooth_scope</b> None &middot; SingleTooth &middot; MultiTooth &middot; Quadrant &middot; Arch &middot; FullMouth</span>
             <span class="enum"><b>pricing_basis</b> PerProcedure &middot; PerTooth &middot; PerSurface &middot; PerQuadrant</span>
             <span class="enum"><b>requires_material_choice</b> bool</span>
+            <span class="enum"><b>vat_rate</b> per service &mdash; medical ≠ cosmetic</span>
+            <span class="enum"><b>required_chair_type_id</b> null = any chair</span>
             <span class="enum"><b>resulting_condition_type</b> Filling &middot; Crown &middot; Implant &middot; Missing &hellip;</span>
           </div>
           <p style="font-size:12px"><strong>This changes invoice arithmetic.</strong> Subtotal becomes unit price &times; billable quantity &mdash; the ProcedureTooth count, or the surface count. A two-surface filling and a three-surface filling are not the same money.</p>
@@ -1320,6 +1338,13 @@
           </ul>
           <div class="rel-label">Enums</div>
           <div class="enums"><span class="enum"><b>status</b> Draft · Issued · PartiallyPaid · Paid · Overdue · Voided</span></div>
+          <div class="rel-label">Vietnamese legal numbering</div>
+          <ul class="fk">
+            <li>invoice_serial <span class="nul">ký hiệu</span></li>
+            <li>invoice_number <span class="nul">số hóa đơn · sequential</span></li>
+            <li>vat_total, tax_authority_code</li>
+          </ul>
+          <p style="font-size:12px">A number is taken <strong>on issue, never on Draft</strong>, and never reused &mdash; a Voided invoice keeps its number, since the gap is exactly what sequential numbering prevents.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>InvoiceLine</h4></div>
@@ -1357,13 +1382,31 @@
     </div>
 
     <div class="domain ops">
-      <div class="domain-head"><h3>Inventory</h3><span class="domain-count">4 entities</span></div>
+      <div class="domain-head"><h3>Inventory</h3><span class="domain-count">5 entities</span></div>
       <div class="cards">
         <div class="card">
           <div class="card-top"><h4>InventoryItem</h4></div>
           <p>A stocked supply or piece of equipment, with its reorder threshold.</p>
           <div class="rel-label">Foreign keys</div>
           <ul class="fk"><li>vendorId <span class="arw">→</span> <span class="tgt">Vendor</span> <span class="nul">nullable</span></li></ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums"><span class="enum"><b>tracks_expiry</b> bool &mdash; perishables hold stock in batches</span></div>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>InventoryBatch</h4></div>
+          <p>One delivery, with its own lot and expiry. <strong>Expiry belongs to the batch, not the item</strong> &mdash; two boxes bought on two dates expire on two dates.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>inventoryItemId <span class="arw">&rarr;</span> <span class="tgt">InventoryItem</span></li>
+            <li>vendorId <span class="arw">&rarr;</span> <span class="tgt">Vendor</span> <span class="nul">nullable</span></li>
+          </ul>
+          <div class="rel-label">Fields</div>
+          <ul class="fk">
+            <li>lot_number, expiry_date</li>
+            <li>quantity_received, quantity_remaining</li>
+            <li>unit_cost <span class="nul">basis for cost of goods</span></li>
+          </ul>
+          <p style="font-size:12px">Consumption is <strong>earliest-expiry-first</strong>, which stops usable stock expiring behind newer stock &mdash; and finally gives the <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">Expired</code> change type something to drive it.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>InventoryLog</h4></div>
@@ -1406,7 +1449,10 @@
             <li>recipientId <span class="arw">→</span> <span class="tgt">User</span> <span class="nul">nullable</span></li>
           </ul>
           <div class="rel-label">Enums</div>
-          <div class="enums"><span class="enum"><b>type</b> Reminder · Page · Alert · Announcement</span></div>
+          <div class="enums"><span class="enum"><b>type</b> Reminder · Page · Alert · Announcement</span>
+          </div>
+          <p style="font-size:12px"><strong>Delivery is out of scope.</strong> This records what should be sent and to whom; getting it onto a phone is a separate system (internal chat, SMS, or Zalo) that will bring its own channel, status and retry.</p>
+          <div class="enums"></div>
         </div>
         <div class="card">
           <div class="card-top"><h4>WageRate</h4><span class="lock">Manager only</span></div>
@@ -1516,7 +1562,7 @@
 
   <footer>
     <span>KPX · Design / core-entities</span>
-    <span>37 entities · 8 domains</span>
+    <span>40 entities · 8 domains</span>
   </footer>
 
 </div>

@@ -149,6 +149,50 @@ The **care relationship**. Created on arrival — never at online-booking time. 
 
 ## Domain: Scheduling
 
+### ChairType
+What a chair is equipped to do. A handful of static rows the clinic defines once.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| name | string | "Standard", "Surgical", "Orthodontic", "Imaging", "Paediatric" |
+| description | text | what distinguishes it — sterile field, CBCT unit, scanner |
+| isActive | bool | |
+| displayOrder | int | |
+
+**Relationships**
+- 1–N → `Chair`
+- 1–N → `ServiceCategory.requiredChairTypeId`
+
+---
+
+### Chair
+A physical treatment position. **Chairs, not doctors, are what actually cap the clinic's throughput** — two dentists cannot both work if there is one chair.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| code | string | "Ghế 1", "Room 2 — Surgery" |
+| chairTypeId | UUID | FK → ChairType |
+| status | enum | **Available, Maintenance, Retired** |
+| notes | text | |
+| displayOrder | int | ordering on the day sheet |
+
+**Invariants**
+- **No two appointments may occupy the same chair at overlapping times.** This is the constraint the entity exists for; without it nothing in the model stops two 09:00 bookings landing in one chair. In PostgreSQL this is an exclusion constraint on (`chairId`, time range); in SQLite it has to be enforced in the application.
+- Only `Available` chairs may be booked. `Maintenance` covers a unit down for repair — not bookable, not gone.
+- A chair may only host an appointment whose procedures allow its type — see `ServiceCategory.requiredChairTypeId`.
+
+> **Booking needs three things to line up:** the doctor is free (`DoctorSchedule`), the chair is free (this entity), and the clinic is open. The third is not yet modelled — there is no clinic-hours entity — which is worth closing before the booking screen is built.
+
+> `Appointment.chairId` is nullable so a chair can be assigned on the day rather than at booking. That flexibility has a cost: an appointment with no chair consumes no capacity, so a booking flow that leaves it null can overbook the clinic. Assigning at booking time is the safer default.
+
+**Relationships**
+- N–1 → `ChairType`
+- 1–N → `Appointment`
+
+---
+
 ### DoctorSchedule
 Defines a doctor's working availability in recurring or one-off blocks.
 
@@ -175,6 +219,7 @@ A scheduled visit linking a patient to a doctor at a specific time.
 | id | UUID | PK |
 | personId | UUID | FK → **User** — not PatientProfile, so a Provisional person can hold a booking made before they ever arrived |
 | doctorId | UUID | FK → StaffProfile |
+| chairId | UUID | FK → Chair; nullable — the physical position this visit occupies. Nullable so it can be assigned on the day, but leaving it null means the visit consumes no capacity |
 | scheduledAt | timestamp | |
 | durationMinutes | int | default 30 |
 | type | enum | Consultation, Procedure, Followup |
@@ -193,7 +238,9 @@ A scheduled visit linking a patient to a doctor at a specific time.
 - N–1 → `StaffProfile` (assistant, optional)
 - 1–N → `Notification` (reminders)
 
-> A visit routinely covers more than one procedure — a filling and a scale in the same chair — so the work done is a list of `ProcedureSession` rows, not a single foreign key on the appointment.
+> A visit routinely covers more than one procedure — a filling and a scale in the same chair — so the work done is a list of `ProcedureSession` rows, not a single foreign key on the appointment. All of those sessions share the appointment's chair, which is why the chair sits here rather than on the session.
+
+> **Two appointments may never overlap in the same chair.** That constraint is the whole reason `Chair` exists, and it cannot be expressed without it.
 
 > `followedUpBy` is the key field for receptionist follow-up KPI: a completed `Followup`-type appointment with `followedUpBy` set counts as a successful returning-patient acquisition for that receptionist.
 
@@ -621,7 +668,9 @@ The catalog of dental services/procedures the clinic offers.
 | isSpecial | bool | true = requires manager approval to include in a plan |
 | toothScope | enum | **None, SingleTooth, MultiTooth, Quadrant, Arch, FullMouth** — how many teeth this service applies to, and therefore how many `ProcedureTooth` rows a procedure of this type must carry |
 | pricingBasis | enum | **PerProcedure, PerTooth, PerSurface, PerQuadrant** — what the `PriceList` unit price is charged *per* |
+| vatRate | decimal | VAT percentage for this service, default 0. **Per service, not per clinic** — Vietnamese VAT treats medical treatment differently from cosmetic work, so a filling and a whitening may not carry the same rate. Confirm the actual rates with the clinic's accountant |
 | requiresMaterialChoice | bool | true when the patient must pick a `MaterialOption` — a crown must, a consultation must not |
+| requiredChairTypeId | UUID | FK → ChairType; **nullable — null means any chair will do**. Set it where the work genuinely needs the equipment: an implant needs the surgical position, a scale does not |
 | warrantyDays | int | nullable — the window within which failure is presumed worth investigating. **Advisory only**: it flags a claim as in or out of window, it never decides fault |
 | resultingConditionType | enum | nullable — the `ToothCondition` this service leaves behind when completed (Filling, Crown, Implant, Missing …), so the chart updates itself rather than being re-drawn by hand |
 | isActive | bool | |
@@ -762,14 +811,26 @@ The billing record for a treatment plan.
 | id | UUID | PK |
 | treatmentPlanId | UUID | FK → TreatmentPlan — **no longer unique**, so a long course can be billed in stages |
 | patientId | UUID | FK → PatientProfile |
-| issuedAt | timestamp | |
-| subtotal | decimal | **sum of its `InvoiceLine.lineTotal`** — derivable and auditable, not a bare figure |
+| invoiceSerial | string | nullable until issued — the form symbol (*ký hiệu hóa đơn*) |
+| invoiceNumber | string | nullable until issued — the legal sequential number (*số hóa đơn*) |
+| taxAuthorityCode | string | nullable — the code returned when the e-invoice is registered |
+| issuedAt | timestamp | nullable — when it left Draft and took its number |
+| subtotal | decimal | **sum of its `InvoiceLine.lineTotal`**, net of VAT |
 | discountAmount | decimal | from Promotion or approved DiscountProposal |
-| total | decimal | subtotal − discountAmount |
+| vatTotal | decimal | sum of its lines' `vatAmount` |
+| total | decimal | subtotal − discountAmount + vatTotal |
 | status | enum | Draft, Issued, PartiallyPaid, Paid, Overdue, Voided |
 | dueDate | date | |
 | promotionId | UUID | FK → Promotion; nullable |
 | discountProposalId | UUID | FK → DiscountProposal; nullable |
+
+**Legal numbering.** Vietnamese invoicing requires a sequential, gapless number under a registered serial, so the rules are strict:
+
+- A number is assigned **when the invoice is issued**, never while it is `Draft`. Drafts have no number because they are not yet invoices.
+- Numbers are **never reused**. A `Voided` invoice keeps its number — the gap it would otherwise leave is precisely what sequential numbering exists to prevent.
+- Once issued, `invoiceSerial` and `invoiceNumber` are immutable. A correction is a credit line or a new invoice, as everywhere else in this design.
+
+> Vietnam now mandates electronic invoicing, so an issued invoice is also registered with the tax authority. `taxAuthorityCode` is the hook for the code that comes back; the integration itself is a separate concern and is not modelled here.
 
 > **Dropping the 1:1 with `TreatmentPlan` is what makes per-session billing possible.** A twenty-month orthodontic course cannot sit on a single invoice carried for two years while the patient pays per visit. The plan is a *clinical* container; the invoice is a *financial* document, and they do not have to line up one to one.
 
@@ -793,7 +854,9 @@ One billable item, frozen at the moment the invoice is issued. This is the join 
 | surfaces | string | **snapshot** — "MOD"; null when not surface-specific |
 | unitPrice | decimal | **snapshot** of the resolved price, material included |
 | quantity | decimal | **snapshot** — 1, the tooth count, or the surface count, per `pricingBasis` |
-| lineTotal | decimal | what this line charges — **negative on a credit line**, which is how a charge is reversed |
+| vatRate | decimal | **snapshot** of the service's VAT rate at issue |
+| vatAmount | decimal | **snapshot** — `lineTotal` × `vatRate`; negative on a credit line so a refund reverses the VAT too |
+| lineTotal | decimal | net of VAT; **negative on a credit line**, which is how a charge is reversed |
 | creditsLineId | UUID | FK → InvoiceLine; nullable — on a credit line, the original line being reversed |
 | issuedAt | timestamp | |
 
@@ -849,13 +912,47 @@ A supply or piece of equipment the clinic stocks.
 | unit | string | e.g., "box", "piece", "ml" |
 | quantityOnHand | decimal | current stock level |
 | reorderThreshold | decimal | trigger for low-supply alert |
+| tracksExpiry | bool | true for perishables — composite, anaesthetic, impression material. False for a mirror or a handpiece, which never expire and need no batches |
 | vendorId | UUID | FK → Vendor; nullable |
 | category | string | e.g., "Consumable", "Equipment" |
 | lastRestockedAt | timestamp | |
 
+**Invariants**
+- When `tracksExpiry` is true, stock is held in `InventoryBatch` rows and `quantityOnHand` is their sum. When false, `quantityOnHand` stands alone and no batches exist.
+
 **Relationships**
+- 1–N → `InventoryBatch` (when it tracks expiry)
 - 1–N → `InventoryLog`
 - N–N → `ProcedureSupplyList`
+
+---
+
+### InventoryBatch
+One delivery of one item, with its own lot number and expiry. **Expiry belongs to the batch, not the item** — ten boxes of composite bought on two dates expire on two dates, and only a batch can say which.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| inventoryItemId | UUID | FK → InventoryItem |
+| lotNumber | string | the manufacturer's lot, as printed on the box |
+| expiryDate | date | |
+| vendorId | UUID | FK → Vendor; nullable — who supplied *this* batch |
+| quantityReceived | decimal | |
+| quantityRemaining | decimal | drawn down as the batch is consumed |
+| unitCost | decimal | what this batch cost per unit — the basis for cost of goods |
+| receivedAt | timestamp | |
+
+**Invariants**
+- `quantityRemaining` never exceeds `quantityReceived`, and never falls below zero.
+- An item's `quantityOnHand` equals the sum of its batches' `quantityRemaining`, for items that track expiry.
+- Consumption picks the **earliest expiry first** (FEFO), which is what stops usable stock expiring behind newer stock.
+- A batch past `expiryDate` with stock remaining is written off through an `InventoryLog` entry of type `Expired` — the change type that previously had nothing to drive it.
+
+> `unitCost` sitting here rather than on the item is what makes cost of goods answerable. The same composite bought at two prices has two batches, and a procedure's true material cost depends on which one was opened.
+
+**Relationships**
+- N–1 → `InventoryItem`, `Vendor`
+- 1–N → `InventoryLog`
 
 ---
 
@@ -866,6 +963,7 @@ Tracks every stock movement (consumption or restocking).
 |-------|------|-------|
 | id | UUID | PK |
 | inventoryItemId | UUID | FK → InventoryItem |
+| batchId | UUID | FK → InventoryBatch; nullable — required for items that track expiry, so consumption and write-offs name the lot |
 | changeType | enum | Consumed, Restocked, Adjusted, Expired |
 | quantityDelta | decimal | positive = added, negative = removed |
 | quantityAfter | decimal | snapshot after change |
@@ -924,6 +1022,8 @@ An in-app message or page sent between staff members or to patients.
 | relatedEntityId | UUID | nullable |
 | isRead | bool | |
 | sentAt | timestamp | |
+
+> **Delivery is deliberately out of scope.** This entity records *what should be sent and to whom*; getting it onto a phone is a separate system — internal chat, SMS, or Zalo — to be designed on its own. When that lands it will need a channel, a delivery status and a retry policy, and those belong with the delivery adapter rather than here. Appointment reminders and the no-show reschedule chase both wait on it.
 
 ---
 
