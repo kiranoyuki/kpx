@@ -3,12 +3,12 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: module 1 of 9 complete.**
+**Status: modules 1–2 of 9 complete.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
 | 1 | People & Access | app_user, staff_profile, patient_profile | ✅ |
-| 2 | Clinic Setup | tooth, chair_type, chair, service_category, material_option, price_list, promotion | — |
+| 2 | Clinic Setup | tooth, chair_type, chair, service_category, material_option, price_list, promotion | ✅ |
 | 3 | Scheduling | doctor_schedule, appointment | — |
 | 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | — |
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | — |
@@ -103,3 +103,73 @@ negative tests** proving each constraint rejects bad data:
 Transitions verified end to end: a Provisional booker arriving and converting to
 an Active patient, and a serving doctor departing while remaining an active
 person with the patient portal intact.
+
+
+---
+
+## Module 2 — Clinic Setup
+
+Reference and configuration data: 52 teeth, 4 chair types, 5 chairs, 9 services,
+11 materials, 17 prices, 4 voucher codes.
+
+### `tooth` — FDI / ISO 3950
+
+52 static rows, generated rather than typed. Two digits: quadrant, then position
+from the midline. `46` is the lower right first molar. **Left and right are the
+patient's**, not the viewer's.
+
+Five CHECK constraints keep the table self-consistent: the code must equal
+`quadrant || position`; permanent teeth live in quadrants 1–4 and primary in
+5–8; primary teeth stop at position 5; `is_anterior` must equal `position <= 3`;
+and `valid_surfaces` must be `MIDBL` for anterior teeth and `MODBL` for
+posterior. An occlusal surface on an incisor is rejected by the schema.
+
+`universal_code` cross-references US 1–32 / A–T numbering, for imaging and CBCT
+software that does not speak FDI.
+
+### Pricing
+
+`price_list.material_option_id` NULL is the **category base price**; a value
+prices that specific material. Resolution prefers a material's own row and falls
+back to the base, so a new material never requires repricing everything.
+
+> **A plain `UNIQUE(service, material, date)` does not work here.** SQL treats
+> NULLs as distinct, so two base-price rows for the same service and date would
+> both be accepted. Two partial unique indexes close it:
+> `uq_price_base` (WHERE material IS NULL) and `uq_price_material`
+> (WHERE material IS NOT NULL). Verified by negative test.
+
+### VAT is per service
+
+Only `Teeth Whitening` carries VAT (10%) in the seed — cosmetic rather than
+medical. Vietnamese VAT does not treat all dentistry alike. **Confirm the actual
+rates with the clinic's accountant**; the schema models the shape, not the
+figures.
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_current_price` | Price in force today per service and material, with the base fallback applied |
+| `v_promotion_status` | Which voucher codes are redeemable, expired, or not yet open |
+| `v_bookable_chair` | The chair list a booking screen works from |
+
+### What the seed exercises
+
+| Case | Rows |
+|------|------|
+| **Superseded price** | Crown base is 5,500,000 from 2025 and 6,000,000 from 2026. Both survive, so a 2025 invoice still reprices correctly |
+| **Material fallback** | Zirconia and PFM have their own prices; **E-max has none** and resolves to the base |
+| **Per-service VAT** | Whitening at 10%, everything else at 0 |
+| **Chair out of service** | `Ghế chỉnh nha` is under Maintenance and must not be bookable |
+| **Chair requirement** | Implant and extraction need the Surgical position; a scale needs any chair |
+| **Voucher states** | `TET2026` expired, `ISHD` and `WELCOME` capped, `XASH` uncapped |
+| **Case-insensitive codes** | `xash` is rejected as a duplicate of `XASH` |
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, all 52 FDI codes present
+with no missing or extra, and **16 negative tests** proving each constraint
+rejects bad data — tooth coherence, duplicate base and material prices, negative
+prices, a percentage over 100, a reversed date window, a case-variant code, and
+services whose scope contradicts their pricing basis.
