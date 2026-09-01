@@ -378,6 +378,7 @@ An append-only log of every status change a procedure passes through — who dec
 | decidedBy | UUID | FK → User — the staff member who **recorded** it |
 | decidedAt | timestamp | |
 | reason | text | **required** for `Declined` and `Skipped` |
+| quotedAmount | decimal | nullable — **the figure actually communicated to the patient** at this transition. On `Proposed` it is the estimate they were shown; on `Accepted` it is the agreed price, which becomes the procedure's `unitPrice` |
 | riskExplained | bool | nullable — on a refusal, whether the consequence was explained to the patient |
 | note | text | |
 
@@ -385,12 +386,17 @@ Whose decision it was is carried by `toStatus`: `Accepted` and `Declined` are th
 
 **Why a log rather than timestamps on the procedure.** A `declinedAt` field records only the most recent state, and treatment is routinely re-proposed. A patient declines a crown on cost grounds in March and accepts it in November after the tooth chips — with a timestamp field, that first refusal is overwritten. It is also precisely the record the clinic would want if the tooth had instead fractured. The log keeps every cycle.
 
+**What was quoted is part of the record.** An estimate shown at proposal time is otherwise computed, displayed and forgotten — and "you told me thirty million" is exactly the dispute this log exists to answer. `quotedAmount` captures the figure at the moment it was given, so a quote in March and an acceptance at a different price in November are both visible, in order, with who said what.
+
+This is deliberately **not** a price guarantee. The estimate is what the patient was shown on the day; the price they pay is resolved when they accept. Recording the quote proves what was said without binding the clinic to a figure that has since moved.
+
 **Informed refusal is the point.** A documented refusal — dated, with a reason, with `riskExplained` set — is the clinic's answer when a patient later asks why a problem was not dealt with. `Declined` without a reason is a status; `Declined` with a reason and an explained risk is a defence.
 
 **Invariants**
 - Append-only. Never edited, never deleted.
 - A procedure's current `status` equals the `toStatus` of its most recent decision — the field on `TreatmentProcedure` is a cache of this log's head.
 - `Declined` and `Skipped` require a `reason`.
+- `quotedAmount` on an `Accepted` transition equals the `unitPrice` written to the procedure — the log and the procedure agree on what was agreed.
 
 **Relationships**
 - N–1 → `TreatmentProcedure`, `User`
@@ -858,6 +864,8 @@ Total: 2,700,000 + 180,000 = **2,880,000**. Computing VAT before the discount wo
 **Allocation rule.** Each line takes `discountAmount × lineTotal ÷ subtotal`, rounded down to whole đồng; the last line absorbs the remainder so the allocated shares sum to the invoice discount **exactly**. VND has no minor unit, so rounding must land somewhere deliberate rather than being left to floating point.
 
 > At most one discount source applies to an invoice — a Promotion code **or** an approved DiscountProposal, not both. Stacking is a business decision the clinic has not asked for, and forbidding it keeps the allocation unambiguous.
+
+> **An estimate is not an invoice.** At proposal time the clinic can and should show a total — sum the current `PriceList` for each proposed procedure, its material and its tooth count. That figure is *computed*, never stored as an `Invoice`. Storing it would go stale twice over: prices move between quote and acceptance, and patients routinely accept some procedures and decline others. An invoice appears when there is something real to bill — at acceptance under `Upfront`, or as sessions complete under `PerSession`. What was quoted is preserved instead on `ProcedureDecision.quotedAmount`, where it belongs with the rest of the decision record.
 
 **Legal numbering.** Vietnamese invoicing requires a sequential, gapless number under a registered serial, so the rules are strict:
 

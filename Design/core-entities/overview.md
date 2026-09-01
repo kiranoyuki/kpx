@@ -310,7 +310,21 @@ Refunding by credit line rather than by editing the invoice is the same rule tha
 
 `ServiceCategory.warrantyDays` flags whether a claim arrived inside the window. It is advisory: it informs the judgment, it does not make it.
 
-### 15. Pay-before-treatment needed no new entities, but moved when the price is set
+### 15. An estimate is computed; an invoice is issued
+At proposal time everything needed to price the plan is already known — the procedures, their materials, their teeth. So the clinic can and should show the patient a total. **That total is a computation, not a record.**
+
+It is not stored as an `Invoice`, and the reason is staleness rather than law. A `Draft` invoice takes no legal number, so creating one early would be harmless in itself. But two rules the clinic set make a stored figure wrong almost immediately:
+
+- **Prices move.** A rise means the patient pays the new price, so a March quote does not survive to a November acceptance.
+- **Patients accept a subset.** `Proposed → Accepted / Declined` runs per procedure; someone taking three of five procedures invalidates a stored five-procedure invoice the moment they decide.
+
+A stored early invoice is therefore a cached copy of a number that can always be derived, carrying a way to be wrong that the derivation does not have. An invoice appears when there is something real to bill: at acceptance under `Upfront`, or as sessions complete under `PerSession`.
+
+This is also why `unitPrice` is null while `Proposed`. Storing it would imply a guarantee. Null encodes *estimate, not commitment*; acceptance turns it into a commitment and locks it.
+
+**What was quoted still belongs in the record.** An estimate that is displayed and forgotten cannot answer "you told me thirty million" — the dispute this design logs everything else to answer. `ProcedureDecision.quotedAmount` captures the figure at the moment it was given, so a March quote and a November acceptance at a different price are both visible, in order, with who said what. It proves what was said without binding the clinic to a price that has since moved.
+
+### 16. Pay-before-treatment needed no new entities, but moved when the price is set
 The clinic's real sequence is: exam, proposal, patient accepts, **patient pays**, then the doctor works. `TreatmentPlan.paymentMode = Upfront` already described that, and commission already fired on session completion rather than on payment — so the flow itself fitted the design unchanged.
 
 It did expose one genuine contradiction. `unitPrice` resolved "when the first session completes", while an Upfront invoice line is created **at acceptance** — before any session exists. The clinic would have been invoicing a price that had not been calculated yet.
@@ -323,7 +337,7 @@ That separation gives the right answer to the awkward case: a patient who prepay
 
 Prepayment followed by cancellation needs no new machinery either — the undone procedures are credited off with negative `InvoiceLine` rows and returned as a `Payment` with `direction = Out`, the same path a failed-treatment refund takes.
 
-### 16. Two payment modes, one mechanism
+### 17. Two payment modes, one mechanism
 `TreatmentPlan.paymentMode` records what was agreed: **Upfront** or **PerSession**. Both produce `InvoiceLine` rows — only the trigger and the reference differ.
 
 | Mode | Line references | Created when | Line total |
@@ -335,7 +349,7 @@ A procedure's total is split across its sessions by `billableAmount`, summing to
 
 This is also why `Invoice` is no longer 1:1 with `TreatmentPlan`. A twenty-month orthodontic course cannot sit on one invoice carried for two years while the patient pays per visit. The plan is a clinical container; the invoice is a financial document, and they need not line up.
 
-### 17. A discount is agreed on the invoice but must be allocated to its lines
+### 18. A discount is agreed on the invoice but must be allocated to its lines
 `Promotion` is now a **voucher code**: the manager creates `XASH` at 10%, sets a window, and a patient presents it at billing. It comes off the whole invoice. The earlier per-category scoping is gone — it added configuration for a case the clinic does not have.
 
 That simplification creates one obligation. VAT is charged **per line** and the rates differ, because dental treatment and cosmetic work are not taxed alike. So an invoice-level discount has to be **allocated across the lines pro-rata by value before VAT is computed**:
@@ -352,7 +366,7 @@ Computing VAT before the discount charges 200,000 instead of 180,000 and bills 2
 
 At most one discount source applies per invoice: a voucher code **or** an approved `DiscountProposal`, never both. Stacking is a business decision the clinic has not asked for, and forbidding it keeps the allocation unambiguous.
 
-### 18. VAT is per service, and invoice numbers are legally sequential
+### 19. VAT is per service, and invoice numbers are legally sequential
 `ServiceCategory.vatRate` sits on the **service**, not the clinic, because Vietnamese VAT does not treat all dentistry alike — medical treatment and cosmetic work are handled differently, so a filling and a whitening may not carry the same rate. The design records a rate per service and leaves the actual figures to be confirmed with the clinic's accountant.
 
 `InvoiceLine` snapshots both `vatRate` and `vatAmount` alongside the price, for the same reason every other field there is frozen: the bill must not move when the catalogue changes. A credit line carries negative VAT, so refunding a failed veneer reverses the tax with the charge.
@@ -365,52 +379,52 @@ Legal numbering has strict rules, and they are strict on purpose:
 
 `taxAuthorityCode` is a hook for e-invoice registration, which Vietnam now mandates. The integration itself is a separate concern.
 
-### 19. `InvoiceLine` freezes the bill away from the clinical record
+### 20. `InvoiceLine` freezes the bill away from the clinical record
 `Invoice` previously held only a subtotal — no itemisation, and nothing connecting money back to a tooth. `InvoiceLine` adds both, and every descriptive field on it is a **snapshot**.
 
 That is not belt-and-braces. Clinical records get amended — `ToothCondition` carries `EnteredInError` precisely because corrections happen. If an invoice were a live view over procedures, correcting a tooth number next month would silently change a bill already issued and paid. Freezing the line decouples the financial record from the clinical one, and `Invoice.subtotal` becomes `SUM(lineTotal)` — derivable and auditable rather than asserted.
 
 Only a **Completed** session, or an **Accepted** procedure paid up front, may produce a line. A `Declined` procedure can never leak into a total.
 
-### 20. Material changes the price, not the service
+### 21. Material changes the price, not the service
 A crown is one clinical service, but zirconia and porcelain-fused-metal are not the same money — and the patient chooses. `MaterialOption` hangs variants off a `ServiceCategory`, and `PriceList` gains a nullable `materialOptionId`: null is the category's base price, a value prices that specific material. Resolution falls back to the base row, so adding a material never requires repricing everything.
 
 Modelling these as separate categories — "Zirconia Crown", "PFM Crown" — would duplicate `isSpecial`, `toothScope`, `pricingBasis`, `resultingConditionType` and the instruction templates, and the catalogue would double again with every new implant brand. Clinical rules belong on the service; commercial choice belongs on the material.
 
-### 21. Patient acceptance and manager approval are different gates
+### 22. Patient acceptance and manager approval are different gates
 `TreatmentProcedure.status` gains `Proposed`, `Accepted` and `Declined`. A proposal is not a separate entity — it is a procedure that has not happened yet, which is also what makes it draw on the chart as planned work.
 
 Manager approval (`SpecialProcedureProposal`, `DiscountProposal`) is a different question with a different reviewer. Keeping them apart means a doctor can propose work to a patient without a manager in the loop, and the manager still gates the cases that need it.
 
 A price rise applies to procedures accepted after it, never to one already agreed: `unitPrice` resolves once, **at acceptance**, so neither a patient mid-root-canal nor one who paid up front sees the rate move.
 
-### 22. `TreatmentPlan` is the clinical anchor
+### 23. `TreatmentPlan` is the clinical anchor
 Everything clinical orbits the treatment plan: procedures, progress logs, notes, discounts, invoicing. A patient may have multiple treatment plans over time (e.g., one for orthodontics, one for implants).
 
-### 23. Procedures are typed by `ServiceCategory`
+### 24. Procedures are typed by `ServiceCategory`
 `ServiceCategory` carries the `isSpecial` flag. Special categories (implant, orthodontic) require a `SpecialProcedureProposal` approved by the manager before the plan is activated. This matches the doctor's approval workflow.
 
-### 24. Pricing is time-versioned
+### 25. Pricing is time-versioned
 `PriceList` records carry an `effectiveFrom` date so historical invoices remain correct after the manager changes prices.
 
-### 25. Discounts flow through two paths
+### 26. Discounts flow through two paths
 - **Voucher codes**: a `Promotion` code the patient presents, taken off the invoice total.
 - **Doctor-proposed discounts**: `DiscountProposal` linked to a specific `TreatmentPlan`; requires manager approval before being applied to the `Invoice`.
 
-### 26. Expiry belongs to the batch, not the item
+### 27. Expiry belongs to the batch, not the item
 `InventoryLog.changeType` has always included `Expired` with nothing in the model able to drive it. The reason is that expiry is not a property of an item at all: ten boxes of composite bought on two dates expire on two dates, and only a batch can say which.
 
 `InventoryBatch` carries `lotNumber`, `expiryDate` and `quantityRemaining`, and consumption picks the **earliest expiry first** — which is what stops usable stock quietly expiring behind newer stock. `InventoryItem.tracksExpiry` decides whether an item needs batches at all: composite and anaesthetic do, a mirror does not.
 
 It also carries `unitCost`. That is what makes cost of goods answerable at all: the same composite bought at two prices is two batches, and a procedure's real material cost depends on which one was opened. Without it, the accountant's cost reporting has no basis to compute from.
 
-### 27. Inventory is dual-purpose
+### 28. Inventory is dual-purpose
 `ProcedureSupplyList` is a template per `ProcedureInstruction` (what supplies are expected). `InventoryLog` records actual consumption or restocking events. Assistants work from both views.
 
-### 28. `Notification` is a first-class entity
+### 29. `Notification` is a first-class entity
 Paging between staff (doctor → assistant, manager → all) is tracked as notifications, not just ephemeral pushes. This supports audit and follow-up reminders.
 
-### 29. Pay rates are versioned, never overwritten
+### 30. Pay rates are versioned, never overwritten
 `WageRate` holds one row per rate a staff member has ever been on, each with an `effectiveFrom`. A raise or a promotion **inserts** a row; it never edits one. The rate for a day of work is the row with the greatest `effectiveFrom` on or before that day — the same mechanism `PriceList` uses to price a procedure by the date it was performed.
 
 A single `hourlyRate` column on `StaffProfile` could only ever hold the *current* rate. That answers "what do we pay them now" and nothing else:
@@ -428,30 +442,30 @@ Settled payroll was never *wrong* under the old shape — `PayrollRecord.basePay
 
 Open decision: for `wageType = Monthly`, a rate change mid-period needs a pro-rating rule — calendar days or working days. `Hourly` needs none.
 
-### 30. Payroll is built from two independent streams
+### 31. Payroll is built from two independent streams
 `PayrollRecord.netPay = basePay + commissionTotal − deductions`. Base pay comes from `AttendanceLog` (hours-based) or a fixed monthly rate. Commission comes from `CommissionEntry` records — the same mechanism for every staff role. There is no separate "performance bonus" stream; receptionist KPI bonuses flow through `CommissionEntry` like any other commission.
 
-### 31. `CommissionRule` covers all commissionable roles with a single unified structure
+### 32. `CommissionRule` covers all commissionable roles with a single unified structure
 One entity replaces two separate systems. For Doctor/Assistant the rule is scoped by `serviceCategoryId`; for Receptionist it is scoped by `eventType`. A nullable `staffId` field enables individual contract rates that override the role-level defaults. Rules are time-versioned with `effectiveFrom`, and each `CommissionEntry` locks in the rule at the time the event occurred — historical payroll is never retroactively changed.
 
-### 32. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
+### 33. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
 It is a bridge between `StaffProfile` and `PatientProfile` that records *what happened* (which receptionist brought in which patient). Commission amounts live in `CommissionEntry`, not here. This separation keeps the event record clean and auditable independently of payroll configuration. The manager can see "receptionist A registered 12 new patients this month" separately from "how much did we pay her for that."
 
-### 33. No staff member earns commission on their own treatment
+### 34. No staff member earns commission on their own treatment
 Staff are welcome to be treated at the clinic — the rule is only about who gets paid. A `CommissionEntry` may not be created where the credited staff member resolves to the same `User` as the patient on that procedure's `TreatmentPlan`. It applies to the doctor and the assistant alike.
 
 If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient. Without this rule, consolidating staff and patients onto one `User` row would quietly let a doctor bill the clinic for treating themselves.
 
-### 34. `CommissionEntry` uses `sourceType` to support two trigger paths
+### 35. `CommissionEntry` uses `sourceType` to support two trigger paths
 - `ProcedureCompleted`: created when a `TreatmentProcedure` moves to Completed. Two entries are written — one for the doctor, one for the assistant.
 - `ReceptionistEvent`: created immediately when a `ReceptionistPerformanceLog` record is written.
 
 In both cases the commission base value (`commissionBase`) is snapshotted at creation time so the manager's payroll review always shows the exact calculation, even if prices or rules change later.
 
-### 35. Commission dashboard is Manager-only
+### 36. Commission dashboard is Manager-only
 `CommissionRule`, `CommissionEntry`, `PayrollAdjustment`, and the full `PayrollRecord` breakdown are visible only to the Manager role. Staff see only their own net pay on their payslip — not the commission rates, individual commission entries, or adjustment reasons. This is enforced at the API permission layer, not the data model.
 
-### 36. Manual payroll adjustments are immutable once payroll is finalized
+### 37. Manual payroll adjustments are immutable once payroll is finalized
 `PayrollAdjustment` records in `Pending` status can be edited or deleted by the manager before payroll is approved. Once a payroll is finalized (`status = Approved`), all linked adjustments become `IncludedInPayroll` and are locked. Any subsequent correction requires a new offsetting adjustment in the next payroll period — there is no in-place editing of settled records. This preserves a clean audit trail for disputes or accounting review.
 
 The `direction` field (Credit / Debit) with a mandatory `reason` field means every non-system adjustment is traceable to a manager decision and a written business justification. Typical debit scenarios: patient refund caused by a procedure error (link `relatedInvoiceId`), commission clawback on a cancelled treatment (link `relatedCommissionEntryId`). Typical credit scenarios: discretionary end-of-year bonus, short-notice shift coverage.
