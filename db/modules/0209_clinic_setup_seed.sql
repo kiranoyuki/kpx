@@ -74,11 +74,11 @@ INSERT INTO tooth (code,quadrant,position,dentition,arch,side,tooth_type,is_ante
 ('85',8,5,'Primary','Lower','Right','Molar',0,'MODBL','Lower right second molar','Răng hàm sữa thứ hai hàm dưới bên phải','T');
 
 -- ------------------------------------------------------------- chair types --
-INSERT INTO chair_type (id, name, description, is_active, display_order) VALUES
-('ct-std',  'Standard',     'General treatment position: exams, hygiene, restorative work.', 1, 1),
-('ct-surg', 'Surgical',     'Sterile field, surgical suction, implant motor. Extractions and implants.', 1, 2),
-('ct-orth', 'Orthodontic',  'Extended headrest and bracket tray for appliance work.', 1, 3),
-('ct-img',  'Imaging',      'CBCT and panoramic unit. Not a treatment position.', 1, 4);
+INSERT INTO chair_type (id, name, description) VALUES
+('ct-std',  'Standard',    'General treatment position: exams, hygiene, restorative work.'),
+('ct-surg', 'Surgical',    'Sterile field, surgical suction, implant motor. Extractions and implants.'),
+('ct-orth', 'Orthodontic', 'Extended headrest and bracket tray for appliance work.'),
+('ct-img',  'Imaging',     'CBCT and panoramic unit. Not a treatment position.');
 
 -- ------------------------------------------------------------------ chairs --
 INSERT INTO chair (id, code, chair_type_id, status, notes, display_order) VALUES

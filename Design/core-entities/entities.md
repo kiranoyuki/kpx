@@ -157,8 +157,34 @@ What a chair is equipped to do. A handful of static rows the clinic defines once
 | id | UUID | PK |
 | name | string | "Standard", "Surgical", "Orthodontic", "Imaging", "Paediatric" |
 | description | text | what distinguishes it — sterile field, CBCT unit, scanner |
-| isActive | bool | |
-| displayOrder | int | |
+
+**Deliberately just a name and a description.** An `isActive` flag and a
+`displayOrder` were both removed, because `Chair` already answers the same
+questions one level down and answers them better:
+
+| Question | Answered by |
+|----------|-------------|
+| Is this position usable? | `Chair.status` — Available, Maintenance, Retired |
+| What order do positions appear in? | `Chair.displayOrder` |
+| Do we still offer this *kind* of position? | there are no chairs of it left |
+
+Retiring a type and retiring its chairs are not two decisions. If the clinic
+stops doing orthodontics, the orthodontic chairs are retired or repurposed —
+and *that* is the observable fact. A type-level flag adds nothing actionable,
+and nothing keeps the two levels coherent: an `Active` chair of an `Inactive`
+type is a state the schema would happily hold and no query would catch.
+
+If the day sheet ever groups chairs by type, the group order is
+`MIN(Chair.displayOrder)` within each type — derivable, so it need not be stored.
+
+> **"Currently treating a patient" is not a status here either.** Available,
+> Maintenance and Retired are *configuration* — a human sets them and they change
+> rarely. Occupancy is *derived state*: a function of the clock and the schedule.
+> An `Appointment` with `status = InProgress` and a `chairId` already says a
+> patient is in that chair, so occupancy is a query rather than a column that
+> someone has to remember to unset. Stored, it would go stale the first time
+> anyone forgot, and it could never answer "was this chair free at 14:00 last
+> Tuesday?"
 
 **Relationships**
 - 1–N → `Chair`

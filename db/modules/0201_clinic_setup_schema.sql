@@ -52,12 +52,17 @@ CREATE TABLE tooth (
 -- What a chair is equipped to do, and the physical positions themselves.
 -- Chairs, not doctors, cap the clinic's throughput.
 -- -----------------------------------------------------------------------------
+-- Just a name and a description. No is_active and no display_order: `chair`
+-- answers both one level down and answers them better. Retiring a type and
+-- retiring its chairs are not two decisions — if the clinic stops doing
+-- orthodontics, the orthodontic chairs are retired, and that is the observable
+-- fact. A type-level flag adds nothing actionable, and nothing would keep the
+-- two levels coherent: an Available chair of an inactive type is a state the
+-- schema would hold and no query would catch.
 CREATE TABLE chair_type (
     id            TEXT PRIMARY KEY,
     name          TEXT NOT NULL UNIQUE,
-    description   TEXT,
-    is_active     INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
-    display_order INTEGER NOT NULL DEFAULT 0
+    description   TEXT
 );
 
 CREATE TABLE chair (
@@ -69,6 +74,11 @@ CREATE TABLE chair (
     notes         TEXT,
     display_order INTEGER NOT NULL DEFAULT 0
 );
+-- NOTE: there is deliberately no 'InUse' status. Available/Maintenance/Retired
+-- are configuration, set by a human and changing rarely. Occupancy is derived
+-- state: an appointment with status = InProgress and this chair_id already says
+-- a patient is in the chair. Module 3 adds v_chair_occupancy over that, rather
+-- than a column someone has to remember to unset.
 
 
 -- -----------------------------------------------------------------------------
