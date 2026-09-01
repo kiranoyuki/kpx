@@ -310,19 +310,20 @@ Refunding by credit line rather than by editing the invoice is the same rule tha
 
 `ServiceCategory.warrantyDays` flags whether a claim arrived inside the window. It is advisory: it informs the judgment, it does not make it.
 
-### 15. An estimate is computed; an invoice is issued
-At proposal time everything needed to price the plan is already known — the procedures, their materials, their teeth. So the clinic can and should show the patient a total. **That total is a computation, not a record.**
+### 15. The proposal invoice is generated, never stored
+The clinic hands a patient a **proposal invoice** so they can decide. It is produced on request from the treatment plan and the prices in force that day, using the same arithmetic a real invoice uses — same discount allocation, same VAT rule — so what they are shown matches what they would be charged if they committed today.
 
-It is not stored as an `Invoice`, and the reason is staleness rather than law. A `Draft` invoice takes no legal number, so creating one early would be harmless in itself. But two rules the clinic set make a stored figure wrong almost immediately:
+It is a document, not a row. Three reasons:
 
-- **Prices move.** A rise means the patient pays the new price, so a March quote does not survive to a November acceptance.
-- **Patients accept a subset.** `Proposed → Accepted / Declined` runs per procedure; someone taking three of five procedures invalidates a stored five-procedure invoice the moment they decide.
+- **Prices move.** A March quote does not survive to a November decision. Regenerating means the patient always sees what they would actually pay now, with no stale figure to reconcile.
+- **Plans change.** Patients accept some procedures and decline others; doctors add work mid-treatment. A stored document is wrong the moment either happens.
+- **It commits nobody.** A proposal invoice is an offer, not a debt. Giving it a row in `Invoice` would seat a non-obligation beside real ones, and eventually beside a legal invoice number.
 
-A stored early invoice is therefore a cached copy of a number that can always be derived, carrying a way to be wrong that the derivation does not have. An invoice appears when there is something real to bill: at acceptance under `Upfront`, or as sessions complete under `PerSession`.
+If a patient returns after six months, generate a new one rather than reviving the old. The document is cheap, always current, and never has to be reconciled.
 
-This is also why `unitPrice` is null while `Proposed`. Storing it would imply a guarantee. Null encodes *estimate, not commitment*; acceptance turns it into a commitment and locks it.
+**A past quote is still reconstructible** without storing it: `ProcedureDecision` records which procedures were proposed and when, and `PriceList.effectiveFrom` records what they cost on that date. Re-running the calculation as of a past date reproduces what the patient was shown. The one case it cannot recover is a material switched after the quote — and switching material is itself a re-quote.
 
-**What was quoted still belongs in the record.** An estimate that is displayed and forgotten cannot answer "you told me thirty million" — the dispute this design logs everything else to answer. `ProcedureDecision.quotedAmount` captures the figure at the moment it was given, so a March quote and a November acceptance at a different price are both visible, in order, with who said what. It proves what was said without binding the clinic to a price that has since moved.
+**Only payment creates an `Invoice`.** That is the point at which a figure stops being an estimate and becomes what somebody owes, and it is why `unitPrice` is null until a procedure is first billed. Held from then on, it stops a price rise reaching work already under way: sessions two and three of a root canal bill at session one's rate. Anything **not yet invoiced** takes the new price.
 
 ### 16. Pay-before-treatment needed no new entities, but moved when the price is set
 The clinic's real sequence is: exam, proposal, patient accepts, **patient pays**, then the doctor works. `TreatmentPlan.paymentMode = Upfront` already described that, and commission already fired on session completion rather than on payment — so the flow itself fitted the design unchanged.
@@ -396,7 +397,7 @@ Modelling these as separate categories — "Zirconia Crown", "PFM Crown" — wou
 
 Manager approval (`SpecialProcedureProposal`, `DiscountProposal`) is a different question with a different reviewer. Keeping them apart means a doctor can propose work to a patient without a manager in the loop, and the manager still gates the cases that need it.
 
-A price rise applies to procedures accepted after it, never to one already agreed: `unitPrice` resolves once, **at acceptance**, so neither a patient mid-root-canal nor one who paid up front sees the rate move.
+A price rise lands on anything not yet invoiced: `unitPrice` resolves once, **when a procedure is first billed**, so a patient mid-root-canal does not see the rate move between visits.
 
 ### 23. `TreatmentPlan` is the clinical anchor
 Everything clinical orbits the treatment plan: procedures, progress logs, notes, discounts, invoicing. A patient may have multiple treatment plans over time (e.g., one for orthodontics, one for implants).

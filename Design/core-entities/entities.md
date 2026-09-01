@@ -322,7 +322,7 @@ One clinically distinct step within a plan — a filling, an extraction, a crown
 | status | enum | Proposed, Accepted, Declined, Scheduled, InProgress, Completed, Skipped |
 | plannedSessions | int | default 1 — how many visits this is expected to take |
 | remedyForFailureId | UUID | FK → TreatmentFailure; nullable — **when set this is free rework**: it produces no invoice line, and therefore no commission |
-| unitPrice | decimal | nullable while `Proposed` — resolved from `PriceList` **when the patient accepts**, then held for the life of the procedure |
+| unitPrice | decimal | nullable until first invoiced — resolved from `PriceList` **when the procedure is first billed**, then held for the life of the procedure |
 | doctorNote | text | instructions for the next session |
 | completedDate | date | nullable — set when the final session completes |
 
@@ -346,9 +346,9 @@ Proposed ──► Accepted ──► Scheduled ──► InProgress ──► C
 
 **Invariants**
 - A procedure with `remedyForFailureId` set is **non-billable**: no `InvoiceLine`, and commission falls out at zero because it is computed from a session's `billableAmount`.
-- `unitPrice` is resolved **once, at acceptance**, and never re-resolved. Acceptance is the moment the patient agrees to a figure, and it is the earliest point the clinic may need to invoice — a patient who must pay before treatment cannot be billed for a price that does not exist yet.
-- A price rise therefore applies to procedures **accepted** after it, never to one already agreed. A patient mid-root-canal does not see the rate move between visits, and neither does one who paid up front.
-- A `Proposed` procedure carries no `unitPrice`. It is quoted at the price current when it is presented, and if the patient takes six months to decide, they accept whatever the price is then.
+- `unitPrice` is resolved **once, when the procedure is first invoiced**, and never re-resolved. Before that there is no stored price at all — only an estimate that is regenerated on demand.
+- Holding it thereafter is what stops a price rise reaching a procedure already under way: sessions two and three of a root canal bill at the same rate as session one.
+- A price rise therefore lands on anything **not yet invoiced**. A patient who is quoted in March and returns in November pays November's price, because the estimate they are shown in November is generated fresh.
 - `materialOptionId` must belong to this procedure's `serviceCategoryId`.
 - Only an `Accepted` procedure may be scheduled or started.
 - `Completed` requires every one of its sessions to be Completed.
@@ -378,7 +378,6 @@ An append-only log of every status change a procedure passes through — who dec
 | decidedBy | UUID | FK → User — the staff member who **recorded** it |
 | decidedAt | timestamp | |
 | reason | text | **required** for `Declined` and `Skipped` |
-| quotedAmount | decimal | nullable — **the figure actually communicated to the patient** at this transition. On `Proposed` it is the estimate they were shown; on `Accepted` it is the agreed price, which becomes the procedure's `unitPrice` |
 | riskExplained | bool | nullable — on a refusal, whether the consequence was explained to the patient |
 | note | text | |
 
@@ -386,9 +385,7 @@ Whose decision it was is carried by `toStatus`: `Accepted` and `Declined` are th
 
 **Why a log rather than timestamps on the procedure.** A `declinedAt` field records only the most recent state, and treatment is routinely re-proposed. A patient declines a crown on cost grounds in March and accepts it in November after the tooth chips — with a timestamp field, that first refusal is overwritten. It is also precisely the record the clinic would want if the tooth had instead fractured. The log keeps every cycle.
 
-**What was quoted is part of the record.** An estimate shown at proposal time is otherwise computed, displayed and forgotten — and "you told me thirty million" is exactly the dispute this log exists to answer. `quotedAmount` captures the figure at the moment it was given, so a quote in March and an acceptance at a different price in November are both visible, in order, with who said what.
-
-This is deliberately **not** a price guarantee. The estimate is what the patient was shown on the day; the price they pay is resolved when they accept. Recording the quote proves what was said without binding the clinic to a figure that has since moved.
+> **A past quote is reconstructed, not stored.** This log records *which procedures were proposed and when*; `PriceList.effectiveFrom` records what they cost on any given date. Together they regenerate what the patient was shown, without a stored figure that could contradict them. The one thing regeneration cannot recover is a material switched after the quote — and switching material is itself a re-quote.
 
 **Informed refusal is the point.** A documented refusal — dated, with a reason, with `riskExplained` set — is the clinic's answer when a patient later asks why a problem was not dealt with. `Declined` without a reason is a status; `Declined` with a reason and an explained risk is a defence.
 
@@ -396,7 +393,6 @@ This is deliberately **not** a price guarantee. The estimate is what the patient
 - Append-only. Never edited, never deleted.
 - A procedure's current `status` equals the `toStatus` of its most recent decision — the field on `TreatmentProcedure` is a cache of this log's head.
 - `Declined` and `Skipped` require a `reason`.
-- `quotedAmount` on an `Accepted` transition equals the `unitPrice` written to the procedure — the log and the procedure agree on what was agreed.
 
 **Relationships**
 - N–1 → `TreatmentProcedure`, `User`
@@ -865,7 +861,7 @@ Total: 2,700,000 + 180,000 = **2,880,000**. Computing VAT before the discount wo
 
 > At most one discount source applies to an invoice — a Promotion code **or** an approved DiscountProposal, not both. Stacking is a business decision the clinic has not asked for, and forbidding it keeps the allocation unambiguous.
 
-> **An estimate is not an invoice.** At proposal time the clinic can and should show a total — sum the current `PriceList` for each proposed procedure, its material and its tooth count. That figure is *computed*, never stored as an `Invoice`. Storing it would go stale twice over: prices move between quote and acceptance, and patients routinely accept some procedures and decline others. An invoice appears when there is something real to bill — at acceptance under `Upfront`, or as sessions complete under `PerSession`. What was quoted is preserved instead on `ProcedureDecision.quotedAmount`, where it belongs with the rest of the decision record.
+> **A proposal invoice is not an `Invoice`.** See *Proposal invoice* below — it is a generated document, not a row in this table. An `Invoice` exists only when there is real money: the patient has committed and is paying.
 
 **Legal numbering.** Vietnamese invoicing requires a sequential, gapless number under a registered serial, so the rules are strict:
 
@@ -880,6 +876,35 @@ Total: 2,700,000 + 180,000 = **2,880,000**. Computing VAT before the discount wo
 **Relationships**
 - 1–N → `InvoiceLine` (what is being charged for)
 - 1–N → `Payment` (what has been received)
+
+---
+
+### Proposal invoice *(a computed document — no entity, no table)*
+What the clinic hands a patient so they can decide. Generated on request from the treatment plan and **the prices in force on the day it is generated**. Nothing about it is stored.
+
+**How it is produced**
+
+| Step | Source |
+|------|--------|
+| Which procedures | the plan's procedures with status `Proposed` or `Accepted` |
+| Unit price for each | `PriceList` resolved for (service category, material option, **today**) |
+| Quantity for each | the category's `pricingBasis` against that procedure's `ProcedureTooth` rows |
+| VAT for each | the category's `vatRate`, applied after any discount is allocated |
+| Voucher | a `Promotion` code, if one is being offered, allocated pro-rata across lines |
+
+The arithmetic is identical to a real invoice — same allocation, same VAT rule — so what the patient is shown matches what they will be charged if they commit today.
+
+**Why it is generated rather than stored**
+
+- **Prices move.** A quote given in March does not survive to a November decision. Regenerating means the patient is always shown what they would actually pay now, and there is no stale figure to reconcile.
+- **Plans change.** Patients accept some procedures and decline others, and doctors add work mid-treatment. A stored document would be wrong the moment either happens.
+- **It commits nobody.** A proposal invoice is an offer, not a debt. Giving it a row in `Invoice` would put a non-obligation next to real ones and eventually next to a legal invoice number.
+
+> **Regenerate freely.** If a patient returns after six months, produce a new proposal invoice rather than reviving the old one. That is the whole point: the document is cheap, always current, and never has to be reconciled against anything.
+
+> **A past quote is still reconstructible.** `ProcedureDecision` records which procedures were proposed and when; `PriceList.effectiveFrom` records what they cost on that date. Re-running the same calculation as of a past date reproduces what the patient was shown — without a stored figure that could contradict it. The one case it cannot recover is a material switched after the quote, and switching material is itself a re-quote.
+
+**What is stored, and when.** Only when the patient commits and pays does an `Invoice` come into being, with `InvoiceLine` rows freezing the figures at that moment. That is the point at which a price stops being an estimate and becomes what somebody owes.
 
 ---
 
