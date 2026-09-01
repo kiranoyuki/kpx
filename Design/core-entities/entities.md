@@ -322,7 +322,7 @@ One clinically distinct step within a plan — a filling, an extraction, a crown
 | status | enum | Proposed, Accepted, Declined, Scheduled, InProgress, Completed, Skipped |
 | plannedSessions | int | default 1 — how many visits this is expected to take |
 | remedyForFailureId | UUID | FK → TreatmentFailure; nullable — **when set this is free rework**: it produces no invoice line, and therefore no commission |
-| unitPrice | decimal | nullable until work starts — resolved from `PriceList` when the **first session completes**, then held for the life of the procedure |
+| unitPrice | decimal | nullable while `Proposed` — resolved from `PriceList` **when the patient accepts**, then held for the life of the procedure |
 | doctorNote | text | instructions for the next session |
 | completedDate | date | nullable — set when the final session completes |
 
@@ -346,7 +346,9 @@ Proposed ──► Accepted ──► Scheduled ──► InProgress ──► C
 
 **Invariants**
 - A procedure with `remedyForFailureId` set is **non-billable**: no `InvoiceLine`, and commission falls out at zero because it is computed from a session's `billableAmount`.
-- `unitPrice` is resolved **once**, at the first completed session, and never re-resolved. A price rise applies to new procedures, not to one already under way — a patient mid-root-canal should not see the rate move between visits.
+- `unitPrice` is resolved **once, at acceptance**, and never re-resolved. Acceptance is the moment the patient agrees to a figure, and it is the earliest point the clinic may need to invoice — a patient who must pay before treatment cannot be billed for a price that does not exist yet.
+- A price rise therefore applies to procedures **accepted** after it, never to one already agreed. A patient mid-root-canal does not see the rate move between visits, and neither does one who paid up front.
+- A `Proposed` procedure carries no `unitPrice`. It is quoted at the price current when it is presented, and if the patient takes six months to decide, they accept whatever the price is then.
 - `materialOptionId` must belong to this procedure's `serviceCategoryId`.
 - Only an `Accepted` procedure may be scheduled or started.
 - `Completed` requires every one of its sessions to be Completed.
@@ -479,7 +481,7 @@ Every procedure has at least one session, even a single-visit filling. That keep
 | status | enum | Scheduled, Completed, Cancelled |
 | performedBy | UUID | FK → StaffProfile — the doctor for **this** session |
 | assistantId | UUID | FK → StaffProfile; nullable — the assistant for **this** session |
-| billableAmount | decimal | the portion of the procedure's total falling due after this session |
+| billableAmount | decimal | **the value of this session's work** — its share of the procedure total. It drives commission whether or not it is separately invoiced |
 | completedAt | timestamp | nullable |
 | progressNote | text | what was done |
 | vitals | json | pulse, blood pressure, …; nullable |
@@ -488,6 +490,7 @@ Every procedure has at least one session, even a single-visit filling. That keep
 **Invariants**
 - `sessionNumber` is unique within a procedure.
 - The sum of `billableAmount` across a procedure's sessions equals the procedure total (`unitPrice` × billable quantity). An even split is the default; a doctor may weight it — an implant is commonly 60% at fixture placement and 40% at the crown.
+- `billableAmount` exists on **every** session, in both payment modes. Under `PerSession` it becomes an invoice line as the session completes; under `Upfront` the money was already collected at acceptance, but the figure still stands as the value of this session's work — which is what commission is computed from.
 - `status = Completed` requires `completedAt` and `performedBy`.
 - A session may only be completed on an `Accepted` procedure.
 
@@ -1180,7 +1183,7 @@ A single earned commission for any commissionable staff member. One unified reco
 | sessionId | UUID | FK → ProcedureSession; nullable — set when sourceType = SessionCompleted |
 | performanceLogId | UUID | FK → ReceptionistPerformanceLog; nullable — set when sourceType = ReceptionistEvent |
 | commissionRuleId | UUID | FK → CommissionRule (rule in effect at earnedAt date) |
-| commissionBase | decimal | snapshot of the base value the rule was applied to (procedure price or first invoice total) |
+| commissionBase | decimal | snapshot of the base value the rule was applied to — the session's `billableAmount`, or the qualifying invoice total for a receptionist event |
 | amount | decimal | computed: rule applied to commissionBase |
 | status | enum | Pending, IncludedInPayroll |
 | payrollRecordId | UUID | FK → PayrollRecord; nullable — set when payroll is finalized |
@@ -1189,6 +1192,7 @@ A single earned commission for any commissionable staff member. One unified reco
 **Invariants**
 - Exactly the FK its `sourceType` names is set; the other is null.
 - Commission is earned **per completed session**, matching the granularity at which the clinic is paid.
+- **Commission follows the work, never the money.** An entry is created when a session completes, regardless of whether the patient paid up front, pays afterwards, or has not paid at all. A patient who prepays a whole plan and then abandons it after one visit leaves the clinic holding the money and the staff credited for exactly one session — which is the correct outcome for both.
 - **Only the people who did the work are paid.** An entry credits the session's `performedBy` and its `assistantId` — never `TreatmentPlan.doctorId`, who owns the case but may not have been in the room. A procedure delivered over three visits by two different doctors and two different assistants produces entries attributing each visit to whoever was actually there.
 - **No staff member earns commission on their own treatment.** An entry may not be created where the `staffId` resolves to the same `User` as the patient on the procedure's `TreatmentPlan`. This applies to the doctor and the assistant alike.
 
