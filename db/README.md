@@ -23,8 +23,29 @@ Built one module at a time, following `Design/build-plan.md`.
 ./db/build.sh
 ```
 
-Drops `kpx.db` and replays every file in `db/modules/` in order. The `.db` is a
-build artefact and is gitignored; the `.sql` files are the source of truth.
+Replays every file in `db/modules/` in order. The `.db` is a build artefact and
+is gitignored; the `.sql` files are the source of truth.
+
+### If your SQL client cannot see new tables
+
+**Disconnect and Reconnect — Refresh is not enough.**
+
+The build writes to a temp file and copies it over `kpx.db` in place, so the
+inode is preserved and an open connection normally survives. An earlier version
+deleted the file first, which gave it a new inode on every build. On macOS,
+deleting a file a program still has open keeps the old data alive for that
+program, so a GUI client goes on reading a *ghost* of the database as it was
+when it first connected. Refresh only re-reads metadata over that same open
+handle; it never reopens the file, so it cannot help.
+
+In DBeaver: right-click the connection -> **Invalidate/Reconnect**, or
+Disconnect then Connect. Confirm you are pointed at:
+
+```
+/Users/anhle/Documents/KPX/db/kpx.db
+```
+
+then expand **kpx -> Schemas -> main -> Tables**.
 
 ## File naming
 
