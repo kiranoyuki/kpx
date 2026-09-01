@@ -748,20 +748,35 @@ A material or product choice within a service, priced separately. A crown is a c
 ---
 
 ### Promotion
-A discount campaign applicable to a service category or clinic-wide.
+A voucher code the manager creates and a patient presents at billing. Deliberately simple: **one code, one percentage or amount, off the whole invoice.**
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | UUID | PK |
-| name | string | |
+| code | string | **unique** — "XASH", "ISHD". What the patient actually presents |
+| name | string | internal description of the campaign |
 | discountType | enum | Percentage, FixedAmount |
-| discountValue | decimal | |
-| applicableTo | enum | AllServices, SpecificCategory |
-| serviceCategoryId | UUID | FK → ServiceCategory; nullable |
+| discountValue | decimal | `10` for 10%, or a VND amount |
 | startDate | date | |
 | endDate | date | |
-| createdBy | UUID | FK → User (Manager) |
+| maxRedemptions | int | nullable — total times the code may be used; null is unlimited |
 | isActive | bool | |
+| createdBy | UUID | FK → User (Manager) |
+| notes | text | |
+
+**Invariants**
+- `code` is unique and case-insensitive on lookup — a patient reading a code off a leaflet will not match its capitalisation.
+- A code is redeemable only between `startDate` and `endDate`, while `isActive`.
+- Redemptions are counted as the invoices carrying this `promotionId`; there is no counter field to drift out of step.
+- `discountType = Percentage` requires `discountValue` ≤ 100.
+
+> **The whole invoice, not a service.** This replaces the earlier per-category scoping (`applicableTo`, `serviceCategoryId`), which added configuration for a case the clinic does not have. A code comes off the invoice total and is allocated across its lines — see `InvoiceLine`.
+
+> Eligibility beyond the code itself is not modelled: anyone presenting a valid code within its window may use it. Rules like *new patients only* or *one per patient* would go here, and can be added without disturbing anything else.
+
+**Relationships**
+- N–1 → `User` (the manager who created it)
+- 1–N → `Invoice`
 
 ---
 
@@ -816,13 +831,30 @@ The billing record for a treatment plan.
 | taxAuthorityCode | string | nullable — the code returned when the e-invoice is registered |
 | issuedAt | timestamp | nullable — when it left Draft and took its number |
 | subtotal | decimal | **sum of its `InvoiceLine.lineTotal`**, net of VAT |
-| discountAmount | decimal | from Promotion or approved DiscountProposal |
-| vatTotal | decimal | sum of its lines' `vatAmount` |
+| discountAmount | decimal | the invoice-level discount, from **either** a Promotion code or an approved DiscountProposal |
+| promotionCode | string | nullable — **snapshot** of the code as redeemed, so a later rename cannot rewrite what the patient was given |
+| vatTotal | decimal | sum of its lines' `vatAmount`, each computed **after** that line's share of the discount |
 | total | decimal | subtotal − discountAmount + vatTotal |
 | status | enum | Draft, Issued, PartiallyPaid, Paid, Overdue, Voided |
 | dueDate | date | |
 | promotionId | UUID | FK → Promotion; nullable |
 | discountProposalId | UUID | FK → DiscountProposal; nullable |
+
+**How a discount reaches VAT.** A discount is agreed on the *invoice*, but VAT is charged per *line* and the rates differ — dental treatment and cosmetic work are not taxed alike. So the discount must be **allocated across the lines pro-rata by line value** before VAT is computed. Charging VAT on the undiscounted price overcharges the patient and misstates the tax.
+
+A worked example — 10% code `XASH` on an invoice carrying one exempt and one taxable service:
+
+| Line | Gross | Allocated discount | Net | VAT rate | VAT |
+|------|-------|--------------------|-----|----------|-----|
+| Composite filling | 1,000,000 | 100,000 | 900,000 | 0% | 0 |
+| Teeth whitening | 2,000,000 | 200,000 | 1,800,000 | 10% | 180,000 |
+| **Invoice** | **3,000,000** | **300,000** | **2,700,000** | | **180,000** |
+
+Total: 2,700,000 + 180,000 = **2,880,000**. Computing VAT before the discount would have charged 200,000 of VAT and billed 2,900,000 — a 20,000 overcharge on a single visit, and one that grows with every mixed-rate invoice.
+
+**Allocation rule.** Each line takes `discountAmount × lineTotal ÷ subtotal`, rounded down to whole đồng; the last line absorbs the remainder so the allocated shares sum to the invoice discount **exactly**. VND has no minor unit, so rounding must land somewhere deliberate rather than being left to floating point.
+
+> At most one discount source applies to an invoice — a Promotion code **or** an approved DiscountProposal, not both. Stacking is a business decision the clinic has not asked for, and forbidding it keeps the allocation unambiguous.
 
 **Legal numbering.** Vietnamese invoicing requires a sequential, gapless number under a registered serial, so the rules are strict:
 
@@ -855,7 +887,8 @@ One billable item, frozen at the moment the invoice is issued. This is the join 
 | unitPrice | decimal | **snapshot** of the resolved price, material included |
 | quantity | decimal | **snapshot** — 1, the tooth count, or the surface count, per `pricingBasis` |
 | vatRate | decimal | **snapshot** of the service's VAT rate at issue |
-| vatAmount | decimal | **snapshot** — `lineTotal` × `vatRate`; negative on a credit line so a refund reverses the VAT too |
+| discountAmount | decimal | this line's pro-rata share of the invoice discount, allocated at issue |
+| vatAmount | decimal | **snapshot** — `(lineTotal − discountAmount)` × `vatRate`. Computed **after** the discount, never before; negative on a credit line so a refund reverses the VAT too |
 | lineTotal | decimal | net of VAT; **negative on a credit line**, which is how a charge is reversed |
 | creditsLineId | UUID | FK → InvoiceLine; nullable — on a credit line, the original line being reversed |
 | issuedAt | timestamp | |
@@ -873,6 +906,8 @@ One billable item, frozen at the moment the invoice is issued. This is the join 
 - Exactly one of `sessionId` or `procedureId` is set.
 - A line may only come from a **Completed** session, or an **Accepted** procedure when paying up front. A `Declined` procedure can never produce one.
 - Lines are immutable once the invoice leaves `Draft`. A correction is a credit line or a new invoice, never an edit.
+- A line's `discountAmount` is its allocated share of the invoice discount; the shares across an invoice sum exactly to `Invoice.discountAmount`.
+- `vatAmount` is always computed on `lineTotal − discountAmount`. This is the rule that keeps the tax correct on a mixed-rate invoice.
 - A credit line has a negative `lineTotal` and names the line it reverses in `creditsLineId`. Refunding a failed veneer credits the original charge and returns the money as a `Payment` with `direction = Out`, leaving the invoice balanced at zero rather than silently rewritten.
 - No session is billed twice: at most one line per `sessionId`.
 

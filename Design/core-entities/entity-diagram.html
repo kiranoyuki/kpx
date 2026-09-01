@@ -1283,17 +1283,18 @@
         </div>
         <div class="card">
           <div class="card-top"><h4>Promotion</h4></div>
-          <p>Manager-set discount campaign. Reaches the invoice without review.</p>
-          <div class="rel-label">Foreign keys</div>
+          <p>A <strong>voucher code</strong> the patient presents at billing &mdash; <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">XASH</code> at 10%, off the whole invoice. Reaches the invoice without review.</p>
+          <div class="rel-label">Fields</div>
           <ul class="fk">
-            <li>serviceCategoryId <span class="arw">→</span> <span class="tgt">ServiceCategory</span> <span class="nul">nullable</span></li>
-            <li>createdBy <span class="arw">→</span> <span class="tgt">User</span></li>
+            <li>code <span class="nul">unique &middot; what the patient presents</span></li>
+            <li>discount_value, start_date, end_date</li>
+            <li>max_redemptions <span class="nul">nullable = unlimited</span></li>
           </ul>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk"><li>createdBy <span class="arw">&rarr;</span> <span class="tgt">User</span></li></ul>
           <div class="rel-label">Enums</div>
-          <div class="enums">
-            <span class="enum"><b>discountType</b> Percentage · FixedAmount</span>
-            <span class="enum"><b>applicableTo</b> AllServices · SpecificCategory</span>
-          </div>
+          <div class="enums"><span class="enum"><b>discountType</b> Percentage · FixedAmount</span></div>
+          <p style="font-size:12px">Per-category scoping was removed &mdash; it configured a case the clinic does not have. Redemptions are counted from the invoices carrying it, so no counter can drift.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>DiscountProposal</h4></div>
@@ -1359,8 +1360,11 @@
           <ul class="fk">
             <li>description, tooth_codes, surfaces</li>
             <li>unit_price, quantity, line_total</li>
+            <li>discount_amount <span class="nul">pro-rata share of the invoice discount</span></li>
+            <li>vat_rate, vat_amount <span class="nul">computed AFTER discount</span></li>
             <li>credits_line_id <span class="nul">negative line reverses a charge</span></li>
           </ul>
+          <p style="font-size:12px"><strong>VAT is computed on <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">line_total &minus; discount_amount</code>, never before.</strong> An invoice-level discount is allocated across lines pro-rata, because VAT rates differ per service &mdash; charging tax on the undiscounted price overcharges the patient and misstates the tax.</p>
           <p style="font-size:12px">Snapshotted because clinical records get <em>amended</em> &mdash; that is why ToothCondition has EnteredInError. A live view would let a tooth-number correction silently change a bill already issued and paid.</p>
         </div>
         <div class="card">

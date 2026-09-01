@@ -108,7 +108,7 @@ Tooth — STATIC REFERENCE (FDI / ISO 3950, 52 rows: 32 permanent + 20 primary)
 ServiceCategory ─── MaterialOption (Zirconia | PFM | Osstem | …)
                 │        └── PriceList per material, versioned
                 ├── PriceList (set by Manager; base price when material is null)
-                ├── Promotion (set by Manager)
+                ├── Promotion — voucher code (XASH 10%, off the whole invoice)
                 ├── toothScope:   None | SingleTooth | MultiTooth | Quadrant | Arch | FullMouth
                 └── pricingBasis: PerProcedure | PerTooth | PerSurface | PerQuadrant
 
@@ -322,7 +322,24 @@ A procedure's total is split across its sessions by `billableAmount`, summing to
 
 This is also why `Invoice` is no longer 1:1 with `TreatmentPlan`. A twenty-month orthodontic course cannot sit on one invoice carried for two years while the patient pays per visit. The plan is a clinical container; the invoice is a financial document, and they need not line up.
 
-### 16. VAT is per service, and invoice numbers are legally sequential
+### 16. A discount is agreed on the invoice but must be allocated to its lines
+`Promotion` is now a **voucher code**: the manager creates `XASH` at 10%, sets a window, and a patient presents it at billing. It comes off the whole invoice. The earlier per-category scoping is gone — it added configuration for a case the clinic does not have.
+
+That simplification creates one obligation. VAT is charged **per line** and the rates differ, because dental treatment and cosmetic work are not taxed alike. So an invoice-level discount has to be **allocated across the lines pro-rata by value before VAT is computed**:
+
+| Line | Gross | Allocated discount | Net | VAT rate | VAT |
+|------|-------|--------------------|-----|----------|-----|
+| Composite filling | 1,000,000 | 100,000 | 900,000 | 0% | 0 |
+| Teeth whitening | 2,000,000 | 200,000 | 1,800,000 | 10% | 180,000 |
+| **Invoice** | **3,000,000** | **300,000** | **2,700,000** | | **180,000** |
+
+Computing VAT before the discount charges 200,000 instead of 180,000 and bills 2,900,000 instead of 2,880,000 — **a 20,000 overcharge on one visit**, growing with every mixed-rate invoice, and misstating the tax the clinic owes. It was a real defect in this design until now: `vatAmount` was `lineTotal × vatRate` while `discountAmount` only reduced the subtotal afterwards.
+
+`InvoiceLine.discountAmount` holds each line's share, and `vatAmount` is computed on `lineTotal − discountAmount`. Shares are rounded down to whole đồng with the last line absorbing the remainder, so they sum to the invoice discount exactly — VND has no minor unit, so the rounding has to land somewhere deliberate.
+
+At most one discount source applies per invoice: a voucher code **or** an approved `DiscountProposal`, never both. Stacking is a business decision the clinic has not asked for, and forbidding it keeps the allocation unambiguous.
+
+### 17. VAT is per service, and invoice numbers are legally sequential
 `ServiceCategory.vatRate` sits on the **service**, not the clinic, because Vietnamese VAT does not treat all dentistry alike — medical treatment and cosmetic work are handled differently, so a filling and a whitening may not carry the same rate. The design records a rate per service and leaves the actual figures to be confirmed with the clinic's accountant.
 
 `InvoiceLine` snapshots both `vatRate` and `vatAmount` alongside the price, for the same reason every other field there is frozen: the bill must not move when the catalogue changes. A credit line carries negative VAT, so refunding a failed veneer reverses the tax with the charge.
@@ -335,52 +352,52 @@ Legal numbering has strict rules, and they are strict on purpose:
 
 `taxAuthorityCode` is a hook for e-invoice registration, which Vietnam now mandates. The integration itself is a separate concern.
 
-### 17. `InvoiceLine` freezes the bill away from the clinical record
+### 18. `InvoiceLine` freezes the bill away from the clinical record
 `Invoice` previously held only a subtotal — no itemisation, and nothing connecting money back to a tooth. `InvoiceLine` adds both, and every descriptive field on it is a **snapshot**.
 
 That is not belt-and-braces. Clinical records get amended — `ToothCondition` carries `EnteredInError` precisely because corrections happen. If an invoice were a live view over procedures, correcting a tooth number next month would silently change a bill already issued and paid. Freezing the line decouples the financial record from the clinical one, and `Invoice.subtotal` becomes `SUM(lineTotal)` — derivable and auditable rather than asserted.
 
 Only a **Completed** session, or an **Accepted** procedure paid up front, may produce a line. A `Declined` procedure can never leak into a total.
 
-### 18. Material changes the price, not the service
+### 19. Material changes the price, not the service
 A crown is one clinical service, but zirconia and porcelain-fused-metal are not the same money — and the patient chooses. `MaterialOption` hangs variants off a `ServiceCategory`, and `PriceList` gains a nullable `materialOptionId`: null is the category's base price, a value prices that specific material. Resolution falls back to the base row, so adding a material never requires repricing everything.
 
 Modelling these as separate categories — "Zirconia Crown", "PFM Crown" — would duplicate `isSpecial`, `toothScope`, `pricingBasis`, `resultingConditionType` and the instruction templates, and the catalogue would double again with every new implant brand. Clinical rules belong on the service; commercial choice belongs on the material.
 
-### 19. Patient acceptance and manager approval are different gates
+### 20. Patient acceptance and manager approval are different gates
 `TreatmentProcedure.status` gains `Proposed`, `Accepted` and `Declined`. A proposal is not a separate entity — it is a procedure that has not happened yet, which is also what makes it draw on the chart as planned work.
 
 Manager approval (`SpecialProcedureProposal`, `DiscountProposal`) is a different question with a different reviewer. Keeping them apart means a doctor can propose work to a patient without a manager in the loop, and the manager still gates the cases that need it.
 
 A price rise applies to new procedures, not to one already under way: `unitPrice` resolves once, at the first completed session, so a patient mid-root-canal does not see the rate move between visits.
 
-### 20. `TreatmentPlan` is the clinical anchor
+### 21. `TreatmentPlan` is the clinical anchor
 Everything clinical orbits the treatment plan: procedures, progress logs, notes, discounts, invoicing. A patient may have multiple treatment plans over time (e.g., one for orthodontics, one for implants).
 
-### 21. Procedures are typed by `ServiceCategory`
+### 22. Procedures are typed by `ServiceCategory`
 `ServiceCategory` carries the `isSpecial` flag. Special categories (implant, orthodontic) require a `SpecialProcedureProposal` approved by the manager before the plan is activated. This matches the doctor's approval workflow.
 
-### 22. Pricing is time-versioned
+### 23. Pricing is time-versioned
 `PriceList` records carry an `effectiveFrom` date so historical invoices remain correct after the manager changes prices.
 
-### 23. Discounts flow through two paths
-- **Manager-set promotions**: `Promotion` entities applied at invoice time.
+### 24. Discounts flow through two paths
+- **Voucher codes**: a `Promotion` code the patient presents, taken off the invoice total.
 - **Doctor-proposed discounts**: `DiscountProposal` linked to a specific `TreatmentPlan`; requires manager approval before being applied to the `Invoice`.
 
-### 24. Expiry belongs to the batch, not the item
+### 25. Expiry belongs to the batch, not the item
 `InventoryLog.changeType` has always included `Expired` with nothing in the model able to drive it. The reason is that expiry is not a property of an item at all: ten boxes of composite bought on two dates expire on two dates, and only a batch can say which.
 
 `InventoryBatch` carries `lotNumber`, `expiryDate` and `quantityRemaining`, and consumption picks the **earliest expiry first** — which is what stops usable stock quietly expiring behind newer stock. `InventoryItem.tracksExpiry` decides whether an item needs batches at all: composite and anaesthetic do, a mirror does not.
 
 It also carries `unitCost`. That is what makes cost of goods answerable at all: the same composite bought at two prices is two batches, and a procedure's real material cost depends on which one was opened. Without it, the accountant's cost reporting has no basis to compute from.
 
-### 25. Inventory is dual-purpose
+### 26. Inventory is dual-purpose
 `ProcedureSupplyList` is a template per `ProcedureInstruction` (what supplies are expected). `InventoryLog` records actual consumption or restocking events. Assistants work from both views.
 
-### 26. `Notification` is a first-class entity
+### 27. `Notification` is a first-class entity
 Paging between staff (doctor → assistant, manager → all) is tracked as notifications, not just ephemeral pushes. This supports audit and follow-up reminders.
 
-### 27. Pay rates are versioned, never overwritten
+### 28. Pay rates are versioned, never overwritten
 `WageRate` holds one row per rate a staff member has ever been on, each with an `effectiveFrom`. A raise or a promotion **inserts** a row; it never edits one. The rate for a day of work is the row with the greatest `effectiveFrom` on or before that day — the same mechanism `PriceList` uses to price a procedure by the date it was performed.
 
 A single `hourlyRate` column on `StaffProfile` could only ever hold the *current* rate. That answers "what do we pay them now" and nothing else:
@@ -390,7 +407,7 @@ A single `hourlyRate` column on `StaffProfile` could only ever hold the *current
 | What is this person paid today? | yes | yes |
 | What were they paid last quarter? | **no — overwritten** | yes |
 | Can we reproduce an old payslip? | **no** | yes |
-| Promotion lands mid-period? | **cannot express** | resolves per day |
+| Staff promotion lands mid-period? | **cannot express** | resolves per day |
 
 The last row is the one that forces the design. An intern promoted on the 15th has half a month at the trainee rate and half at the new one; with a single column you must pick one rate for the whole period and both choices are wrong. Because `WageRate` is resolved per `AttendanceLog` day, that case needs no special handling at all.
 
@@ -398,30 +415,30 @@ Settled payroll was never *wrong* under the old shape — `PayrollRecord.basePay
 
 Open decision: for `wageType = Monthly`, a rate change mid-period needs a pro-rating rule — calendar days or working days. `Hourly` needs none.
 
-### 28. Payroll is built from two independent streams
+### 29. Payroll is built from two independent streams
 `PayrollRecord.netPay = basePay + commissionTotal − deductions`. Base pay comes from `AttendanceLog` (hours-based) or a fixed monthly rate. Commission comes from `CommissionEntry` records — the same mechanism for every staff role. There is no separate "performance bonus" stream; receptionist KPI bonuses flow through `CommissionEntry` like any other commission.
 
-### 29. `CommissionRule` covers all commissionable roles with a single unified structure
+### 30. `CommissionRule` covers all commissionable roles with a single unified structure
 One entity replaces two separate systems. For Doctor/Assistant the rule is scoped by `serviceCategoryId`; for Receptionist it is scoped by `eventType`. A nullable `staffId` field enables individual contract rates that override the role-level defaults. Rules are time-versioned with `effectiveFrom`, and each `CommissionEntry` locks in the rule at the time the event occurred — historical payroll is never retroactively changed.
 
-### 30. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
+### 31. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
 It is a bridge between `StaffProfile` and `PatientProfile` that records *what happened* (which receptionist brought in which patient). Commission amounts live in `CommissionEntry`, not here. This separation keeps the event record clean and auditable independently of payroll configuration. The manager can see "receptionist A registered 12 new patients this month" separately from "how much did we pay her for that."
 
-### 31. No staff member earns commission on their own treatment
+### 32. No staff member earns commission on their own treatment
 Staff are welcome to be treated at the clinic — the rule is only about who gets paid. A `CommissionEntry` may not be created where the credited staff member resolves to the same `User` as the patient on that procedure's `TreatmentPlan`. It applies to the doctor and the assistant alike.
 
 If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient. Without this rule, consolidating staff and patients onto one `User` row would quietly let a doctor bill the clinic for treating themselves.
 
-### 32. `CommissionEntry` uses `sourceType` to support two trigger paths
+### 33. `CommissionEntry` uses `sourceType` to support two trigger paths
 - `ProcedureCompleted`: created when a `TreatmentProcedure` moves to Completed. Two entries are written — one for the doctor, one for the assistant.
 - `ReceptionistEvent`: created immediately when a `ReceptionistPerformanceLog` record is written.
 
 In both cases the commission base value (`commissionBase`) is snapshotted at creation time so the manager's payroll review always shows the exact calculation, even if prices or rules change later.
 
-### 33. Commission dashboard is Manager-only
+### 34. Commission dashboard is Manager-only
 `CommissionRule`, `CommissionEntry`, `PayrollAdjustment`, and the full `PayrollRecord` breakdown are visible only to the Manager role. Staff see only their own net pay on their payslip — not the commission rates, individual commission entries, or adjustment reasons. This is enforced at the API permission layer, not the data model.
 
-### 34. Manual payroll adjustments are immutable once payroll is finalized
+### 35. Manual payroll adjustments are immutable once payroll is finalized
 `PayrollAdjustment` records in `Pending` status can be edited or deleted by the manager before payroll is approved. Once a payroll is finalized (`status = Approved`), all linked adjustments become `IncludedInPayroll` and are locked. Any subsequent correction requires a new offsetting adjustment in the next payroll period — there is no in-place editing of settled records. This preserves a clean audit trail for disputes or accounting review.
 
 The `direction` field (Credit / Debit) with a mandatory `reason` field means every non-system adjustment is traceable to a manager decision and a written business justification. Typical debit scenarios: patient refund caused by a procedure error (link `relatedInvoiceId`), commission clawback on a cancelled treatment (link `relatedCommissionEntryId`). Typical credit scenarios: discretionary end-of-year bonus, short-notice shift coverage.
