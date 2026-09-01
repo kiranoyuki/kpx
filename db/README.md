@@ -3,13 +3,13 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: modules 1–2 of 9 complete.**
+**Status: modules 1–3 of 9 complete.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
 | 1 | People & Access | app_user, staff_profile, patient_profile | ✅ |
 | 2 | Clinic Setup | tooth, chair_type, chair, service_category, material_option, price_list, promotion | ✅ |
-| 3 | Scheduling | doctor_schedule, appointment | — |
+| 3 | Scheduling | doctor_schedule, appointment | ✅ |
 | 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | — |
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | — |
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | — |
@@ -194,3 +194,90 @@ with no missing or extra, and **16 negative tests** proving each constraint
 rejects bad data — tooth coherence, duplicate base and material prices, negative
 prices, a percentage over 100, a reversed date window, a case-variant code, and
 services whose scope contradicts their pricing basis.
+
+
+---
+
+## Module 3 — Scheduling
+
+7 availability blocks, 8 appointments, 4 views, 5 triggers.
+
+### `appointment.person_id` points at `app_user`, not `patient_profile`
+
+An online booking happens *before* the person has arrived and become a patient,
+so the appointment must be able to reference a `Provisional` person. Two of the
+seeded appointments do exactly that. Conversion on arrival is then one `UPDATE`
+plus one `INSERT` — this foreign key never changes, because it was valid from
+the moment the booking was taken.
+
+What was *done* at a visit is not here either. A visit routinely covers more
+than one procedure, so the work is a list of `procedure_session` rows pointing
+back at the appointment. That arrives with module 5.
+
+### Triggers, because SQLite has no EXCLUDE constraints
+
+PostgreSQL would express the overlap rules as `EXCLUDE` constraints. SQLite has
+none, so they live in triggers — which keeps them in the database rather than
+trusting every future caller to remember.
+
+| Trigger | Rule |
+|---------|------|
+| `trg_appt_chair_overlap_ins` / `_upd` | **One chair, one patient at a time.** The reason `chair` exists |
+| `trg_appt_doctor_overlap_ins` | A doctor cannot be in two chairs at once |
+| `trg_appt_doctor_bookable` | Only `Intern` or `Active` staff take new work — not `OnLeave`, not `Departed` |
+| `trg_appt_chair_available` | A chair under `Maintenance` or `Retired` cannot be booked |
+
+`Cancelled` and `NoShow` appointments **release their slot** — they occupy
+nothing, and the seed proves a released slot can be rebooked.
+
+### Occupancy is derived, never stored
+
+There is no `InUse` chair status. `Available` / `Maintenance` / `Retired` are
+*configuration*, set by a human and changing rarely. Occupancy is a function of
+the schedule: an appointment `InProgress` with a `chair_id` already says a
+patient is in that chair. `v_chair_occupancy` reads that. Stored, it would go
+stale the first time anyone forgot to unset it, and could never answer "was this
+chair free at 14:00 last Tuesday?"
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_day_sheet` | Everything booked for a day, in time order |
+| `v_chair_occupancy` | Who is in which chair right now |
+| `v_reschedule_followup` | Booked online, never arrived, still Provisional, nothing rebooked |
+| `v_appointment_off_roster` | Appointments outside the doctor's stated hours |
+
+`v_appointment_off_roster` is **advisory, not a constraint**. An emergency should
+never be blocked by the rota — but the desk should be able to see when it
+happened. It currently flags `ap-04`: Dr Quỳnh works Tuesdays and Wednesdays,
+and 2026-09-05 is a Saturday.
+
+### What the seed exercises
+
+| Case | Rows |
+|------|------|
+| **Parallel capacity** | `ap-01` and `ap-02` share 2026-08-25 09:00 in *different* chairs with *different* doctors — nothing objects |
+| **Provisional holds a booking** | `ap-04`, self-booked online, `created_by` NULL, person not yet a patient |
+| **The reschedule chase** | `ap-03` — a Provisional no-show. Bùi Thị Hạnh is correctly *excluded*: she no-showed nothing and has a future booking |
+| **Live occupancy** | `ap-07` is `InProgress`, so Ghế 1 reads "in use" |
+| **Released slot** | `ap-08` is `Cancelled`; its chair and time can be rebooked |
+| **Receptionist KPI credit** | `ap-05` and `ap-06` carry `followed_up_by` |
+| **One-off override** | `ds-07` closes Dr Minh's National Day |
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, **12 negative tests** all
+rejecting and **6 positive controls** all accepted.
+
+The chair constraint was isolated deliberately: a first attempt tripped the
+*doctor* trigger instead, because the test picked a doctor who was already
+booked. Rerun with a genuinely free doctor, the same chair and time is rejected
+while a different chair at the same doctor and time is accepted — proving the
+chair was the only conflict.
+
+### A note on module 1
+
+Module 1 gained a second `Active` doctor (Lâm Thị Quỳnh). With only one bookable
+doctor, two appointments in one chair would always trip the doctor-overlap rule
+first, and the chair constraint could never be tested in isolation.

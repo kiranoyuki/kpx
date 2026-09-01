@@ -1,12 +1,13 @@
 -- =============================================================================
 -- KPX — MODULE 1 seed: People & Access
 --
--- 13 people, chosen to exercise every edge the design cares about:
+-- 14 people, chosen to exercise every edge the design cares about:
 --
 --   2  Provisional — booked online, never arrived: no CCCD, no verification,
 --                    and deliberately NO patient_profile
 --   4  Active patients — two with email, two walk-ins with none
---   7  Staff — one of each role, plus an Intern, one OnLeave, one Departed
+--   8  Staff — one of each role, two bookable doctors, plus an Intern,
+--                one OnLeave and one Departed
 --   2  DUAL PROFILE — a serving doctor and a departed doctor who are also
 --                     patients at their own clinic
 --
@@ -31,7 +32,8 @@ INSERT INTO app_user
 ('u-doc03', 'Ngô Bảo Châu',     '0901234507', 'bs.chau@kpx.vn',      '1983-02-11', '31 Nguyễn Du, Quận 1, TP.HCM',    '079083008890', 'Active', '2024-08-01 08:00:00', 'u-mgr01', 'Doctor',       '2024-08-01 08:00:00'),
 ('u-rec01', 'Phạm Thu Hà',      '0901234504', 'letan.ha@kpx.vn',     '1996-01-30', '23 Võ Văn Tần, Quận 3, TP.HCM',   '079196007742', 'Active', '2024-06-10 08:00:00', 'u-mgr01', 'Receptionist', '2024-06-10 08:00:00'),
 ('u-ast01', 'Đỗ Văn Nam',       '0901234505', 'trolyi.nam@kpx.vn',   '1998-05-18', '9 Cách Mạng Tháng 8, Quận 10',    '079098003310', 'Active', '2026-07-01 08:00:00', 'u-mgr01', 'Assistant',    '2026-07-01 08:00:00'),
-('u-acc01', 'Vũ Thị Lan',       '0901234506', 'ketoan.lan@kpx.vn',   '1990-09-09', '56 Điện Biên Phủ, Bình Thạnh',    '079190006654', 'Active', '2024-06-20 08:00:00', 'u-mgr01', 'Accountant',   '2024-06-20 08:00:00');
+('u-acc01', 'Vũ Thị Lan',       '0901234506', 'ketoan.lan@kpx.vn',   '1990-09-09', '56 Điện Biên Phủ, Bình Thạnh',    '079190006654', 'Active', '2024-06-20 08:00:00', 'u-mgr01', 'Accountant',   '2024-06-20 08:00:00'),
+('u-doc04', 'Lâm Thị Quỳnh',    '0901234508', 'bs.quynh@kpx.vn',     '1991-06-05', '88 Nguyễn Thị Minh Khai, Quận 3', '079191009923', 'Active', '2025-03-01 08:00:00', 'u-mgr01', 'Doctor',       '2025-03-01 08:00:00');
 
 -- -----------------------------------------------------------------------------
 -- Patients. u-pat03 and u-pat04 are walk-ins with NO email — verified, CCCD on
@@ -70,7 +72,8 @@ INSERT INTO staff_profile (id, user_id, join_date, employment_status, end_date, 
 ('st-doc03', 'u-doc03', '2024-08-01', 'Departed', '2026-06-30', 'Endodontics',  'VN-DDS-6612'),
 ('st-rec01', 'u-rec01', '2024-06-10', 'Active',   NULL,         NULL,           NULL),
 ('st-ast01', 'u-ast01', '2026-07-01', 'Intern',   NULL,         NULL,           NULL),
-('st-acc01', 'u-acc01', '2024-06-20', 'Active',   NULL,         NULL,           NULL);
+('st-acc01', 'u-acc01', '2024-06-20', 'Active',   NULL,         NULL,           NULL),
+('st-doc04', 'u-doc04', '2025-03-01', 'Active',   NULL,         'General dentistry', 'VN-DDS-7104');
 
 -- -----------------------------------------------------------------------------
 -- Care relationships. Note the last two: staff who are also patients.
