@@ -3,14 +3,14 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: modules 1–3 of 9 complete.**
+**Status: modules 1–4 of 9 complete.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
 | 1 | People & Access | app_user, staff_profile, patient_profile | ✅ |
 | 2 | Clinic Setup | tooth, chair_type, chair, service_category, material_option, price_list, promotion | ✅ |
 | 3 | Scheduling | doctor_schedule, appointment | ✅ |
-| 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | — |
+| 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | ✅ |
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | — |
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | — |
 | 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list | — |
@@ -281,3 +281,84 @@ chair was the only conflict.
 Module 1 gained a second `Active` doctor (Lâm Thị Quỳnh). With only one bookable
 doctor, two appointments in one chair would always trip the doctor-overlap rule
 first, and the chair constraint could never be tested in isolation.
+
+
+---
+
+## Module 4 — Treatment Planning
+
+5 plans, 11 procedures, 35 decisions, 3 instruction templates, 3 proposals.
+
+### The circular dependency, and what actually works
+
+`treatment_procedure.remedy_for_failure_id` points at `treatment_failure`
+(module 6), which points back. The build plan originally said to declare the
+forward FK here and leave it NULL. **That does not work.** `CREATE TABLE`
+accepts a forward reference, but with `PRAGMA foreign_keys = ON` the first
+`INSERT` fails — *even inserting NULL*:
+
+```sql
+CREATE TABLE tp (id TEXT PRIMARY KEY, fk TEXT REFERENCES tf(id));  -- succeeds
+INSERT INTO tp VALUES ('p1', NULL);        -- Error: no such table: main.tf
+```
+
+Disabling foreign keys to get past it would defeat the point. So **module 4 does
+not create the column at all**, and module 6 adds it once the parent exists:
+
+```sql
+ALTER TABLE treatment_procedure
+    ADD COLUMN remedy_for_failure_id TEXT REFERENCES treatment_failure(id);
+```
+
+SQLite permits a `REFERENCES` clause on `ADD COLUMN`, and it enforces normally
+afterwards — verified: a valid value is accepted, an invalid one rejected, and
+`foreign_key_check` stays clean. `Design/build-plan.md` has been corrected.
+
+### The decision log is the source of truth
+
+Nothing sets `treatment_procedure.status` directly. Every procedure is created
+`Proposed` and walked to its present state by `procedure_decision` rows, with
+triggers enforcing the whole discipline:
+
+| Trigger | Rule |
+|---------|------|
+| `trg_decision_no_update` / `_no_delete` | The log is **append-only**. An error is corrected by a further decision, never by rewriting one |
+| `trg_decision_chain` | `from_status` must match where the procedure actually is, so the log is a coherent chain rather than disconnected claims |
+| `trg_decision_chain` | Only clinically meaningful transitions. `Proposed -> Completed` skips consent and is refused |
+| `trg_decision_applies` | `treatment_procedure.status` is a **cache** of the log's head, updated automatically |
+
+Legal transitions, including re-proposal after a refusal:
+
+```
+NULL -> Proposed -> Accepted -> Scheduled -> InProgress -> Completed
+          |  ^
+          v  |
+       Declined        (and Skipped from most states)
+```
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_plan_detail` | Every plan with its procedures, materials and statuses |
+| `v_procedure_trail` | The full decision history for a procedure, in order |
+| `v_pending_approvals` | Both proposal types in one manager queue |
+| `v_declined_work` | Informed refusal — what was declined, why, and whether the risk was explained |
+
+### What the seed exercises
+
+| Case | Rows |
+|------|------|
+| **Informed refusal and re-proposal** | `pr-09` — declined on cost with the risk explained, **re-proposed two months later**, then accepted. All four decisions survive. A `declined_at` column would have overwritten the refusal |
+| **Blocked on approval** | `tp-02` sits `PendingApproval`; its braces stay `Proposed` while `sp-02` waits on the manager |
+| **Staff as patient** | `tp-05` — Dr Minh treated by Dr Quỳnh, which will earn him nothing in module 8 |
+| **No prices anywhere** | All 11 procedures have `unit_price` NULL: nothing has been invoiced, so no price has bound |
+| **Material rules** | Crowns and implants carry a material; consultations and scalings do not |
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, **14 negative tests** all
+rejecting and **3 positive controls** accepted — covering append-only
+enforcement, chain coherence, the transition whitelist, refusals without a
+reason, a crown given an implant's material, and proposals whose review state
+contradicts their reviewer.

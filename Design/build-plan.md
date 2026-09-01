@@ -20,17 +20,29 @@ TreatmentFailure.procedureId          ──► TreatmentProcedure
 A failure is *of* a procedure; a free-rework procedure is *because of* a failure. Both
 directions are real, so the cycle cannot be designed away.
 
-**It does not block the build.** SQLite does not require the parent table to exist when a
-child is created — only when a row is inserted. So `TreatmentProcedure` (module 4) may
-declare its FK to `TreatmentFailure` (module 6) before that table exists. Verified:
+**It does not block the build, but not the way first assumed.** `CREATE TABLE` with a
+forward reference succeeds — but with `PRAGMA foreign_keys = ON`, the very first `INSERT`
+then fails, **even inserting NULL**:
 
 ```sql
-CREATE TABLE child  (id TEXT PRIMARY KEY, parent_id TEXT REFERENCES parent(id));  -- succeeds
-CREATE TABLE parent (id TEXT PRIMARY KEY, child_id  TEXT REFERENCES child(id));   -- then this
+CREATE TABLE tp (id TEXT PRIMARY KEY, fk TEXT REFERENCES tf(id));  -- succeeds
+INSERT INTO tp VALUES ('p1', NULL);        -- Error: no such table: main.tf
 ```
 
-Insert order still matters: create the procedure with `remedy_for_failure_id` NULL, then
-the failure, then `UPDATE` the procedure if there is rework.
+Turning foreign keys off to get past it would defeat the point. The working answer is
+`ALTER TABLE ADD COLUMN`, which SQLite *does* allow to carry a `REFERENCES` clause:
+
+**Module 4 creates `treatment_procedure` without `remedy_for_failure_id` at all.**
+**Module 6 adds the column once `treatment_failure` exists:**
+
+```sql
+ALTER TABLE treatment_procedure
+    ADD COLUMN remedy_for_failure_id TEXT REFERENCES treatment_failure(id);
+```
+
+Verified end to end: the column is added, a valid value is accepted, an invalid one is
+rejected by the constraint, and `foreign_key_check` stays clean. No pragma is ever
+disabled.
 
 ### Treatment must be built before Booking
 
