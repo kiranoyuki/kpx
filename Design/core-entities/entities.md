@@ -274,6 +274,7 @@ One clinically distinct step within a plan — a filling, an extraction, a crown
 | sequence | int | order within the plan |
 | status | enum | Proposed, Accepted, Declined, Scheduled, InProgress, Completed, Skipped |
 | plannedSessions | int | default 1 — how many visits this is expected to take |
+| remedyForFailureId | UUID | FK → TreatmentFailure; nullable — **when set this is free rework**: it produces no invoice line, and therefore no commission |
 | unitPrice | decimal | nullable until work starts — resolved from `PriceList` when the **first session completes**, then held for the life of the procedure |
 | doctorNote | text | instructions for the next session |
 | completedDate | date | nullable — set when the final session completes |
@@ -297,6 +298,7 @@ Proposed ──► Accepted ──► Scheduled ──► InProgress ──► C
 > Patient acceptance and manager approval are **different gates**. Acceptance lives here on `status`; manager approval for special or discounted work lives on `SpecialProcedureProposal` and `DiscountProposal`.
 
 **Invariants**
+- A procedure with `remedyForFailureId` set is **non-billable**: no `InvoiceLine`, and commission falls out at zero because it is computed from a session's `billableAmount`.
 - `unitPrice` is resolved **once**, at the first completed session, and never re-resolved. A price rise applies to new procedures, not to one already under way — a patient mid-root-canal should not see the rate move between visits.
 - `materialOptionId` must belong to this procedure's `serviceCategoryId`.
 - Only an `Accepted` procedure may be scheduled or started.
@@ -343,6 +345,60 @@ Whose decision it was is carried by `toStatus`: `Accepted` and `Declined` are th
 
 **Relationships**
 - N–1 → `TreatmentProcedure`, `User`
+
+---
+
+### TreatmentFailure
+A patient reports that completed work has failed — a veneer cracks two days after fitting. This record carries the claim, the clinic's determination of fault, the remedy, and the link to whatever the responsible staff are charged. It is what makes a refund possible, deliberate and traceable.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | UUID | PK |
+| procedureId | UUID | FK → TreatmentProcedure — the completed work that failed |
+| toothCode | string | FK → Tooth; nullable — which tooth, when the procedure covered several |
+| reportedAt | timestamp | |
+| patientAccount | text | what the patient says happened, in their words |
+| clinicalFinding | text | what the examining clinician found |
+| examinedBy | UUID | FK → User |
+| status | enum | Reported, UnderReview, Resolved, Rejected |
+| faultAttribution | enum | nullable until determined — **ClinicTechnique, MaterialDefect, PatientFactor, Inconclusive** |
+| remedy | enum | nullable until determined — **Refund, FreeRework, Both, None** |
+| determinedBy | UUID | FK → User (Manager); nullable |
+| determinedAt | timestamp | nullable |
+| determinationNote | text | nullable — **why** this attribution was reached |
+
+**The clinic refunds when the fault is its own.** `faultAttribution` is the gate, and it is a human judgment recorded with its reasoning, never an automatic rule:
+
+| Attribution | Typical remedy | Staff charged? |
+|-------------|----------------|----------------|
+| ClinicTechnique | Refund, FreeRework, or Both | **yes** — see below |
+| MaterialDefect | Refund or FreeRework | no — pursue the vendor instead |
+| PatientFactor | None; new work is charged normally | no |
+| Inconclusive | manager's discretion | manager's discretion |
+
+**How the money actually moves.** Three existing mechanisms carry it, so nothing new is needed to move a single đồng:
+
+| Step | Recorded as |
+|------|-------------|
+| Cancel the charge | an `InvoiceLine` with a **negative** `lineTotal`, its `creditsLineId` naming the line it reverses |
+| Return the money | a `Payment` with `direction = Out` |
+| Redo the work free | a new `TreatmentProcedure` with `remedyForFailureId` set — it produces no invoice line |
+| Charge the responsible staff | a `PayrollAdjustment` with `direction = Debit` and `relatedFailureId` set |
+
+> **Free rework earns no commission, and needs no rule to make that true.** Commission is computed from a session's `billableAmount`, and a remedy procedure bills nothing — so the entry is zero by arithmetic. The separate `PayrollAdjustment` debit is what recovers the clinic's actual loss, which may exceed the refund once a lab remake is paid for.
+
+> **Who is charged, and how much, is the manager's call.** The design records the decision and its reasoning; it does not compute it. A procedure delivered across sessions by different staff has a `performedBy` on each, so the manager can see who did the work that failed rather than guessing.
+
+**Invariants**
+- `status = Resolved` requires `faultAttribution`, `remedy`, `determinedBy` and `determinedAt`.
+- `remedy` including Refund requires a credit line and an outbound payment; including FreeRework requires a procedure pointing back with `remedyForFailureId`.
+- Once `Resolved`, the record is immutable. A reversal is a new `PayrollAdjustment`, never an edit — the same rule that governs settled payroll.
+- The failed procedure keeps `status = Completed`. It *was* completed; it later failed. Rewriting its status would falsify the history this record exists to preserve.
+
+**Relationships**
+- N–1 → `TreatmentProcedure` (the failed work), `Tooth`, `User`
+- 1–N → `TreatmentProcedure.remedyForFailureId` (free rework)
+- 1–N → `PayrollAdjustment.relatedFailureId` (staff consequence)
 
 ---
 
@@ -566,6 +622,7 @@ The catalog of dental services/procedures the clinic offers.
 | toothScope | enum | **None, SingleTooth, MultiTooth, Quadrant, Arch, FullMouth** — how many teeth this service applies to, and therefore how many `ProcedureTooth` rows a procedure of this type must carry |
 | pricingBasis | enum | **PerProcedure, PerTooth, PerSurface, PerQuadrant** — what the `PriceList` unit price is charged *per* |
 | requiresMaterialChoice | bool | true when the patient must pick a `MaterialOption` — a crown must, a consultation must not |
+| warrantyDays | int | nullable — the window within which failure is presumed worth investigating. **Advisory only**: it flags a claim as in or out of window, it never decides fault |
 | resultingConditionType | enum | nullable — the `ToothCondition` this service leaves behind when completed (Filling, Crown, Implant, Missing …), so the chart updates itself rather than being re-drawn by hand |
 | isActive | bool | |
 | displayOrder | int | for patient-facing ordering |
@@ -736,7 +793,8 @@ One billable item, frozen at the moment the invoice is issued. This is the join 
 | surfaces | string | **snapshot** — "MOD"; null when not surface-specific |
 | unitPrice | decimal | **snapshot** of the resolved price, material included |
 | quantity | decimal | **snapshot** — 1, the tooth count, or the surface count, per `pricingBasis` |
-| lineTotal | decimal | what this line charges |
+| lineTotal | decimal | what this line charges — **negative on a credit line**, which is how a charge is reversed |
+| creditsLineId | UUID | FK → InvoiceLine; nullable — on a credit line, the original line being reversed |
 | issuedAt | timestamp | |
 
 **Every descriptive field is a snapshot, deliberately.** Clinical records get amended — `ToothCondition` carries `EnteredInError` precisely because corrections happen. If an invoice were a live view over procedures, correcting a tooth number next month would silently change a bill already issued and paid. Freezing the line decouples the financial record from the clinical one.
@@ -752,11 +810,13 @@ One billable item, frozen at the moment the invoice is issued. This is the join 
 - Exactly one of `sessionId` or `procedureId` is set.
 - A line may only come from a **Completed** session, or an **Accepted** procedure when paying up front. A `Declined` procedure can never produce one.
 - Lines are immutable once the invoice leaves `Draft`. A correction is a credit line or a new invoice, never an edit.
+- A credit line has a negative `lineTotal` and names the line it reverses in `creditsLineId`. Refunding a failed veneer credits the original charge and returns the money as a `Payment` with `direction = Out`, leaving the invoice balanced at zero rather than silently rewritten.
 - No session is billed twice: at most one line per `sessionId`.
 
 **Relationships**
 - N–1 → `Invoice`
 - N–1 → `ProcedureSession` *or* `TreatmentProcedure`
+- 0–1 → `InvoiceLine` via `creditsLineId` (the line this one reverses)
 
 ---
 
@@ -767,7 +827,8 @@ An individual payment transaction against an invoice.
 |-------|------|-------|
 | id | UUID | PK |
 | invoiceId | UUID | FK → Invoice |
-| amount | decimal | |
+| direction | enum | **In, Out** — In is money received, Out is a refund returned to the patient |
+| amount | decimal | always positive; `direction` carries the sign |
 | method | enum | Cash, BankTransfer, Card, Other |
 | paidAt | timestamp | |
 | receivedBy | UUID | FK → User (Receptionist) |
@@ -1032,6 +1093,7 @@ A manager-created manual credit or debit applied to a staff member's payroll. Us
 | reason | text | mandatory — manager's written explanation (e.g., "Patient refund for botched implant procedure", "End-of-year performance bonus") |
 | relatedCommissionEntryId | UUID | FK → CommissionEntry; nullable — use when reversing a specific earned commission (e.g., commission on a refunded invoice) |
 | relatedInvoiceId | UUID | FK → Invoice; nullable — use when the cause is a specific patient refund |
+| relatedFailureId | UUID | FK → TreatmentFailure; nullable — use when the cause is work the clinic judged its own fault |
 | payrollRecordId | UUID | FK → PayrollRecord; nullable — set when this adjustment is included in a finalized payroll period |
 | status | enum | Pending \| IncludedInPayroll |
 | createdBy | UUID | FK → User (Manager) |
@@ -1039,6 +1101,6 @@ A manager-created manual credit or debit applied to a staff member's payroll. Us
 
 > **Manager-only.** Only the Manager role can create, edit, or view `PayrollAdjustment` records. Adjustments in `Pending` status can be edited or deleted before payroll is finalized. Once `IncludedInPayroll`, they become immutable — any correction requires a new offsetting adjustment.
 
-> **Typical debit scenarios:** patient refund caused by a procedure error (links `relatedInvoiceId`); commission clawback when a commission was paid on a treatment that was later cancelled (links `relatedCommissionEntryId`).
+> **Typical debit scenarios:** work the clinic judged its own fault, charged to the staff who performed it (links `relatedFailureId`, and `relatedInvoiceId` for the refunded invoice); commission clawback when a commission was paid on a treatment later cancelled (links `relatedCommissionEntryId`). The amount is the manager's judgment and may exceed the refund itself, since a lab remake and the free chair time are real losses too.
 
 > **Typical credit scenarios:** one-off end-of-year bonus; compensation for a shift covered at short notice.

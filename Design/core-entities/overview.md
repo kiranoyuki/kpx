@@ -8,7 +8,7 @@ The system is organized into 8 domains, each grouping entities by concern.
 |--------|----------|
 | Identity & Access | User, StaffProfile, PatientProfile |
 | Scheduling | DoctorSchedule, Appointment |
-| Clinical | HealthRecord, TreatmentPlan, TreatmentProcedure, **ProcedureDecision**, ProcedureSession, ProcedureInstruction, PatientMedia |
+| Clinical | HealthRecord, TreatmentPlan, TreatmentProcedure, ProcedureDecision, ProcedureSession, ProcedureInstruction, **TreatmentFailure**, PatientMedia |
 | Dental Charting | Tooth, ToothCondition, ProcedureTooth |
 | Catalog & Pricing | ServiceCategory, **MaterialOption**, PriceList, Promotion, DiscountProposal, SpecialProcedureProposal |
 | Billing | Invoice, **InvoiceLine**, Payment |
@@ -71,8 +71,16 @@ User — PERSON RECORD (one row per human; credentials optional)
            ├── DiscountProposal (doctor → manager approval)
            ├── SpecialProcedureProposal (doctor → manager approval)
            └── Invoice  (no longer 1:1 with the plan — stage billing allowed)
-                ├── InvoiceLine  (frozen snapshot: description, teeth, price, qty)
-                └── Payment
+                ├── InvoiceLine  (frozen snapshot; negative = credit line)
+                └── Payment  (direction In | Out — Out is a refund)
+
+TreatmentFailure  (work failed; who pays for it)
+ ├── procedureId → TreatmentProcedure   [the work that failed; stays Completed]
+ ├── faultAttribution: ClinicTechnique | MaterialDefect | PatientFactor | Inconclusive
+ ├── remedy: Refund | FreeRework | Both | None
+ ├──► InvoiceLine (negative) + Payment (Out)      — money back to the patient
+ ├──► TreatmentProcedure.remedyForFailureId       — free rework, bills nothing
+ └──► PayrollAdjustment.relatedFailureId (Debit)  — charged to the staff at fault
 
 ReceptionistPerformanceLog (standalone — bridges StaffProfile ↔ PatientProfile)
  ├── receptionistId → StaffProfile
@@ -260,7 +268,36 @@ Sessions also fix a modelling error. `Appointment.treatmentProcedureId` was a si
 
 And because a session carries its own `performedBy` and `assistantId`, a procedure delivered over three visits by two different doctors and two different assistants attributes each visit to whoever was actually there. Commission follows the same granularity for the same reason: **only the people who did the work are paid.** `TreatmentPlan.doctorId` owns the case but earns nothing — they may not have been in the room.
 
-### 13. Two payment modes, one mechanism
+### 13. Failed work is a case with three linked consequences, not a refund button
+A veneer cracks two days after fitting. The clinic refunds — but only where the fault was its own, and when it does, the loss is charged back to whoever did the work. That is one event with three consequences, and they have to stay linked or the audit falls apart.
+
+`TreatmentFailure` is the case file: what the patient reported, what the clinician found, what the manager determined and **why**. `faultAttribution` is the gate on refunding, and it is a recorded human judgment, never an automatic rule:
+
+| Attribution | Typical remedy | Staff charged? |
+|-------------|----------------|----------------|
+| ClinicTechnique | Refund, FreeRework, or Both | **yes** |
+| MaterialDefect | Refund or FreeRework | no — pursue the vendor |
+| PatientFactor | None; new work charged normally | no |
+| Inconclusive | manager's discretion | manager's discretion |
+
+**No new money machinery was needed.** Three mechanisms already in the design carry it:
+
+| Step | Recorded as |
+|------|-------------|
+| Cancel the charge | `InvoiceLine` with negative `lineTotal`, naming what it reverses in `creditsLineId` |
+| Return the money | `Payment` with `direction = Out` |
+| Redo it free | `TreatmentProcedure.remedyForFailureId` — non-billable |
+| Charge the staff | `PayrollAdjustment` Debit with `relatedFailureId` |
+
+Refunding by credit line rather than by editing the invoice is the same rule that already governs settled payroll and clinical findings: **corrections are new rows, never edits.** The invoice ends balanced at zero with both the charge and its reversal visible, which is what an auditor or a court would ask to see.
+
+**Free rework earns no commission, and no rule was needed to make that true.** Commission derives from a session's `billableAmount`; a remedy procedure bills nothing, so the entry is zero by arithmetic. The `PayrollAdjustment` debit is separate and recovers the clinic's *real* loss, which routinely exceeds the refund once a lab remake and the free chair time are counted.
+
+**The failed procedure keeps `status = Completed`.** It was completed; it later failed. Rewriting its status would falsify exactly the history this record exists to preserve — and `ProcedureSession.performedBy` on each visit is what lets a manager see who did the work rather than guess.
+
+`ServiceCategory.warrantyDays` flags whether a claim arrived inside the window. It is advisory: it informs the judgment, it does not make it.
+
+### 14. Two payment modes, one mechanism
 `TreatmentPlan.paymentMode` records what was agreed: **Upfront** or **PerSession**. Both produce `InvoiceLine` rows — only the trigger and the reference differ.
 
 | Mode | Line references | Created when | Line total |
@@ -272,45 +309,45 @@ A procedure's total is split across its sessions by `billableAmount`, summing to
 
 This is also why `Invoice` is no longer 1:1 with `TreatmentPlan`. A twenty-month orthodontic course cannot sit on one invoice carried for two years while the patient pays per visit. The plan is a clinical container; the invoice is a financial document, and they need not line up.
 
-### 14. `InvoiceLine` freezes the bill away from the clinical record
+### 15. `InvoiceLine` freezes the bill away from the clinical record
 `Invoice` previously held only a subtotal — no itemisation, and nothing connecting money back to a tooth. `InvoiceLine` adds both, and every descriptive field on it is a **snapshot**.
 
 That is not belt-and-braces. Clinical records get amended — `ToothCondition` carries `EnteredInError` precisely because corrections happen. If an invoice were a live view over procedures, correcting a tooth number next month would silently change a bill already issued and paid. Freezing the line decouples the financial record from the clinical one, and `Invoice.subtotal` becomes `SUM(lineTotal)` — derivable and auditable rather than asserted.
 
 Only a **Completed** session, or an **Accepted** procedure paid up front, may produce a line. A `Declined` procedure can never leak into a total.
 
-### 15. Material changes the price, not the service
+### 16. Material changes the price, not the service
 A crown is one clinical service, but zirconia and porcelain-fused-metal are not the same money — and the patient chooses. `MaterialOption` hangs variants off a `ServiceCategory`, and `PriceList` gains a nullable `materialOptionId`: null is the category's base price, a value prices that specific material. Resolution falls back to the base row, so adding a material never requires repricing everything.
 
 Modelling these as separate categories — "Zirconia Crown", "PFM Crown" — would duplicate `isSpecial`, `toothScope`, `pricingBasis`, `resultingConditionType` and the instruction templates, and the catalogue would double again with every new implant brand. Clinical rules belong on the service; commercial choice belongs on the material.
 
-### 16. Patient acceptance and manager approval are different gates
+### 17. Patient acceptance and manager approval are different gates
 `TreatmentProcedure.status` gains `Proposed`, `Accepted` and `Declined`. A proposal is not a separate entity — it is a procedure that has not happened yet, which is also what makes it draw on the chart as planned work.
 
 Manager approval (`SpecialProcedureProposal`, `DiscountProposal`) is a different question with a different reviewer. Keeping them apart means a doctor can propose work to a patient without a manager in the loop, and the manager still gates the cases that need it.
 
 A price rise applies to new procedures, not to one already under way: `unitPrice` resolves once, at the first completed session, so a patient mid-root-canal does not see the rate move between visits.
 
-### 17. `TreatmentPlan` is the clinical anchor
+### 18. `TreatmentPlan` is the clinical anchor
 Everything clinical orbits the treatment plan: procedures, progress logs, notes, discounts, invoicing. A patient may have multiple treatment plans over time (e.g., one for orthodontics, one for implants).
 
-### 18. Procedures are typed by `ServiceCategory`
+### 19. Procedures are typed by `ServiceCategory`
 `ServiceCategory` carries the `isSpecial` flag. Special categories (implant, orthodontic) require a `SpecialProcedureProposal` approved by the manager before the plan is activated. This matches the doctor's approval workflow.
 
-### 19. Pricing is time-versioned
+### 20. Pricing is time-versioned
 `PriceList` records carry an `effectiveFrom` date so historical invoices remain correct after the manager changes prices.
 
-### 20. Discounts flow through two paths
+### 21. Discounts flow through two paths
 - **Manager-set promotions**: `Promotion` entities applied at invoice time.
 - **Doctor-proposed discounts**: `DiscountProposal` linked to a specific `TreatmentPlan`; requires manager approval before being applied to the `Invoice`.
 
-### 21. Inventory is dual-purpose
+### 22. Inventory is dual-purpose
 `ProcedureSupplyList` is a template per `ProcedureInstruction` (what supplies are expected). `InventoryLog` records actual consumption or restocking events. Assistants work from both views.
 
-### 22. `Notification` is a first-class entity
+### 23. `Notification` is a first-class entity
 Paging between staff (doctor → assistant, manager → all) is tracked as notifications, not just ephemeral pushes. This supports audit and follow-up reminders.
 
-### 23. Pay rates are versioned, never overwritten
+### 24. Pay rates are versioned, never overwritten
 `WageRate` holds one row per rate a staff member has ever been on, each with an `effectiveFrom`. A raise or a promotion **inserts** a row; it never edits one. The rate for a day of work is the row with the greatest `effectiveFrom` on or before that day — the same mechanism `PriceList` uses to price a procedure by the date it was performed.
 
 A single `hourlyRate` column on `StaffProfile` could only ever hold the *current* rate. That answers "what do we pay them now" and nothing else:
@@ -328,30 +365,30 @@ Settled payroll was never *wrong* under the old shape — `PayrollRecord.basePay
 
 Open decision: for `wageType = Monthly`, a rate change mid-period needs a pro-rating rule — calendar days or working days. `Hourly` needs none.
 
-### 24. Payroll is built from two independent streams
+### 25. Payroll is built from two independent streams
 `PayrollRecord.netPay = basePay + commissionTotal − deductions`. Base pay comes from `AttendanceLog` (hours-based) or a fixed monthly rate. Commission comes from `CommissionEntry` records — the same mechanism for every staff role. There is no separate "performance bonus" stream; receptionist KPI bonuses flow through `CommissionEntry` like any other commission.
 
-### 25. `CommissionRule` covers all commissionable roles with a single unified structure
+### 26. `CommissionRule` covers all commissionable roles with a single unified structure
 One entity replaces two separate systems. For Doctor/Assistant the rule is scoped by `serviceCategoryId`; for Receptionist it is scoped by `eventType`. A nullable `staffId` field enables individual contract rates that override the role-level defaults. Rules are time-versioned with `effectiveFrom`, and each `CommissionEntry` locks in the rule at the time the event occurred — historical payroll is never retroactively changed.
 
-### 26. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
+### 27. `ReceptionistPerformanceLog` is a standalone event log, not a bonus ledger
 It is a bridge between `StaffProfile` and `PatientProfile` that records *what happened* (which receptionist brought in which patient). Commission amounts live in `CommissionEntry`, not here. This separation keeps the event record clean and auditable independently of payroll configuration. The manager can see "receptionist A registered 12 new patients this month" separately from "how much did we pay her for that."
 
-### 27. No staff member earns commission on their own treatment
+### 28. No staff member earns commission on their own treatment
 Staff are welcome to be treated at the clinic — the rule is only about who gets paid. A `CommissionEntry` may not be created where the credited staff member resolves to the same `User` as the patient on that procedure's `TreatmentPlan`. It applies to the doctor and the assistant alike.
 
 If Dr. Mai treats Dr. Minh, Dr. Mai earns her commission normally; Dr. Minh earns nothing, because he is the patient. Without this rule, consolidating staff and patients onto one `User` row would quietly let a doctor bill the clinic for treating themselves.
 
-### 28. `CommissionEntry` uses `sourceType` to support two trigger paths
+### 29. `CommissionEntry` uses `sourceType` to support two trigger paths
 - `ProcedureCompleted`: created when a `TreatmentProcedure` moves to Completed. Two entries are written — one for the doctor, one for the assistant.
 - `ReceptionistEvent`: created immediately when a `ReceptionistPerformanceLog` record is written.
 
 In both cases the commission base value (`commissionBase`) is snapshotted at creation time so the manager's payroll review always shows the exact calculation, even if prices or rules change later.
 
-### 29. Commission dashboard is Manager-only
+### 30. Commission dashboard is Manager-only
 `CommissionRule`, `CommissionEntry`, `PayrollAdjustment`, and the full `PayrollRecord` breakdown are visible only to the Manager role. Staff see only their own net pay on their payslip — not the commission rates, individual commission entries, or adjustment reasons. This is enforced at the API permission layer, not the data model.
 
-### 30. Manual payroll adjustments are immutable once payroll is finalized
+### 31. Manual payroll adjustments are immutable once payroll is finalized
 `PayrollAdjustment` records in `Pending` status can be edited or deleted by the manager before payroll is approved. Once a payroll is finalized (`status = Approved`), all linked adjustments become `IncludedInPayroll` and are locked. Any subsequent correction requires a new offsetting adjustment in the next payroll period — there is no in-place editing of settled records. This preserves a clean audit trail for disputes or accounting review.
 
 The `direction` field (Credit / Debit) with a mandatory `reason` field means every non-system adjustment is traceable to a manager decision and a written business justification. Typical debit scenarios: patient refund caused by a procedure error (link `relatedInvoiceId`), commission clawback on a cancelled treatment (link `relatedCommissionEntryId`). Typical credit scenarios: discretionary end-of-year bonus, short-notice shift coverage.

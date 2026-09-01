@@ -362,9 +362,9 @@
   <header class="mast">
     <div class="eyebrow">KPX · Dental Clinic Management</div>
     <h1>Entity Map</h1>
-    <p class="deck">The data model behind KPX — 36 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
+    <p class="deck">The data model behind KPX — 37 entities across eight domains: the FDI tooth map the whole clinical record is built on, plus the five mechanisms that carry the clinic — a stranger becoming a patient, a patient becoming revenue, work becoming pay, a doctor's proposal reaching the manager, and supplies moving off the shelf.</p>
     <div class="stats">
-      <div class="stat"><b>36</b><span>Entities</span></div>
+      <div class="stat"><b>37</b><span>Entities</span></div>
       <div class="stat"><b>8</b><span>Domains</span></div>
       <div class="stat"><b>6</b><span>Roles</span></div>
       <div class="stat"><b>6</b><span>Diagrams</span></div>
@@ -933,7 +933,7 @@
   <!-- ============ ENTITY INDEX ============ -->
   <section>
     <div class="sec-head"><span class="sec-num">07</span><h2>Complete entity index</h2></div>
-    <p class="sec-lede">All 36 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
+    <p class="sec-lede">All 37 entities with their foreign keys and state enums — the relational and state-machine surface of the model. Full field-level specifications live in <code style="font-family:'IBM Plex Mono',monospace;font-size:13px">entities.md</code>.</p>
 
     <div class="domain clinical">
       <div class="domain-head"><h3>Identity &amp; Access</h3><span class="domain-count">3 entities</span></div>
@@ -1038,7 +1038,7 @@
     </div>
 
     <div class="domain clinical">
-      <div class="domain-head"><h3>Clinical</h3><span class="domain-count">7 entities</span></div>
+      <div class="domain-head"><h3>Clinical</h3><span class="domain-count">8 entities</span></div>
       <div class="cards">
         <div class="card">
           <div class="card-top"><h4>HealthRecord</h4></div>
@@ -1096,6 +1096,29 @@
           <div class="rel-label">Enums</div>
           <div class="enums"><span class="enum"><b>status</b> Proposed &middot; Accepted &middot; Declined &middot; Scheduled &middot; InProgress &middot; Completed &middot; Skipped</span></div>
           <p style="font-size:12px">Acceptance is the <em>patient&rsquo;s</em> gate; <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">SpecialProcedureProposal</code> is the manager&rsquo;s. A price rise never moves a procedure already under way.</p>
+        </div>
+        <div class="card">
+          <div class="card-top"><h4>TreatmentFailure</h4><span class="lock">Manager determines</span></div>
+          <p>Completed work failed &mdash; a veneer cracks two days after fitting. One case file carrying the claim, the fault judgment, the remedy, and the charge back to whoever did the work.</p>
+          <div class="rel-label">Foreign keys</div>
+          <ul class="fk">
+            <li>procedureId <span class="arw">&rarr;</span> <span class="tgt">TreatmentProcedure</span> <span class="nul">stays Completed</span></li>
+            <li>toothCode <span class="arw">&rarr;</span> <span class="tgt">Tooth</span> <span class="nul">nullable</span></li>
+            <li>determinedBy <span class="arw">&rarr;</span> <span class="tgt">User</span> <span class="nul">manager</span></li>
+          </ul>
+          <div class="rel-label">Enums</div>
+          <div class="enums">
+            <span class="enum"><b>status</b> Reported &middot; UnderReview &middot; Resolved &middot; Rejected</span>
+            <span class="enum"><b>fault_attribution</b> ClinicTechnique &middot; MaterialDefect &middot; PatientFactor &middot; Inconclusive</span>
+            <span class="enum"><b>remedy</b> Refund &middot; FreeRework &middot; Both &middot; None</span>
+          </div>
+          <div class="rel-label">Three linked consequences</div>
+          <ul class="fk">
+            <li>negative InvoiceLine + Payment Out <span class="nul">money back</span></li>
+            <li>remedyForFailureId <span class="nul">free rework, bills nothing</span></li>
+            <li>PayrollAdjustment Debit <span class="nul">charged to staff</span></li>
+          </ul>
+          <p style="font-size:12px">Free rework earns no commission by arithmetic &mdash; commission derives from <code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">billable_amount</code>, which is zero. The debit is separate and recovers the real loss, lab remake included.</p>
         </div>
         <div class="card">
           <div class="card-top"><h4>ProcedureInstruction</h4></div>
@@ -1311,6 +1334,7 @@
           <ul class="fk">
             <li>description, tooth_codes, surfaces</li>
             <li>unit_price, quantity, line_total</li>
+            <li>credits_line_id <span class="nul">negative line reverses a charge</span></li>
           </ul>
           <p style="font-size:12px">Snapshotted because clinical records get <em>amended</em> &mdash; that is why ToothCondition has EnteredInError. A live view would let a tooth-number correction silently change a bill already issued and paid.</p>
         </div>
@@ -1323,7 +1347,11 @@
             <li>receivedBy <span class="arw">→</span> <span class="tgt">User</span></li>
           </ul>
           <div class="rel-label">Enums</div>
-          <div class="enums"><span class="enum"><b>method</b> Cash · BankTransfer · Card · Other</span></div>
+          <div class="enums">
+            <span class="enum"><b>direction</b> In · Out</span>
+            <span class="enum"><b>method</b> Cash · BankTransfer · Card · Other</span>
+          </div>
+          <p style="font-size:12px"><code style="font-family:'IBM Plex Mono',monospace;font-size:11.5px">Out</code> is a refund. Paired with a negative InvoiceLine so the invoice balances at zero with both the charge and its reversal visible.</p>
         </div>
       </div>
     </div>
@@ -1488,7 +1516,7 @@
 
   <footer>
     <span>KPX · Design / core-entities</span>
-    <span>36 entities · 8 domains</span>
+    <span>37 entities · 8 domains</span>
   </footer>
 
 </div>
