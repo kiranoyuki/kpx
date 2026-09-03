@@ -3,7 +3,7 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: modules 1–5 of 9 complete.**
+**Status: modules 1–6 of 9 complete.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
@@ -12,7 +12,7 @@ Built one module at a time, following `Design/build-plan.md`.
 | 3 | Scheduling | doctor_schedule, appointment | ✅ |
 | 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | ✅ |
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | ✅ |
-| 6 | Billing | invoice, invoice_line, payment, treatment_failure | — |
+| 6 | Billing | invoice, invoice_line, payment, treatment_failure | ✅ |
 | 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list | — |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
 | 9 | Notifications | notification | — |
@@ -442,3 +442,94 @@ rejecting and **5 positive controls** accepted — covering all five surface
 failure modes, whole-tooth findings that name surfaces, deletion of a clinical
 finding, cross-patient and cross-tooth finding links, a session opened on work
 the patient has not accepted, and invalid JSON in `vitals`.
+
+
+---
+
+## Module 6 — Billing
+
+4 tables, 4 views, 6 triggers, 5 invoices, 8 lines, 6 payments, 1 failure.
+
+### The circular dependency, closed
+
+```sql
+ALTER TABLE treatment_procedure
+    ADD COLUMN remedy_for_failure_id TEXT REFERENCES treatment_failure(id);
+```
+
+Module 4 could not declare this forward FK — `CREATE TABLE` accepts it but the
+first `INSERT` then fails, even inserting NULL. `ADD COLUMN` may carry a
+`REFERENCES` clause, and it **enforces properly**: pointing the column at a
+non-existent failure is rejected by the foreign key. No pragma is ever disabled.
+
+### VAT is charged on the discounted amount, and the schema enforces it
+
+```sql
+CONSTRAINT ck_line_vat_after_discount CHECK (
+    vat_amount = CAST(ROUND((line_total - discount_amount) * vat_rate / 100.0) AS INTEGER))
+```
+
+`inv-04` is the case worth reading. Whitening at 10% VAT and a scaling at 0%,
+with the `XASH` voucher taking 10% off the invoice:
+
+| Line | Gross | Allocated discount | Net | VAT | Charge |
+|------|-------|--------------------|-----|-----|--------|
+| Whitening | 3,000,000 | 300,000 | 2,700,000 | 10% → 270,000 | 2,970,000 |
+| Scale & polish | 500,000 | 50,000 | 450,000 | 0% → 0 | 450,000 |
+| **Total** | 3,500,000 | 350,000 | 3,150,000 | **270,000** | **3,420,000** |
+
+Charging VAT on the gross would have billed **3,450,000** — 30,000 too much on a
+single visit. `v_vat_check` computes both figures side by side so the difference
+is visible rather than asserted.
+
+Invoice totals are **derived by trigger** from the lines, so `subtotal`,
+`discount_amount`, `vat_total` and `total` cannot drift from what was itemised.
+
+### The failed extraction, end to end
+
+Tuấn returns four days after an extraction with a retained root fragment. The
+manager judges it `ClinicTechnique` and orders `Both` — refund and free rework.
+Three linked consequences, none of them needing new machinery:
+
+| Step | Recorded as |
+|------|-------------|
+| Cancel the charge | `il-07`, an invoice line with `line_total = -1,200,000` naming `il-02` in `credits_line_id` |
+| Return the money | `pay-06`, a `Payment` with `direction = Out` |
+| Redo it free | `pr-13`, a procedure with `remedy_for_failure_id = tf-01` |
+
+The invoice ends balanced at zero with **both the charge and its reversal
+visible** — never edited. And `pr-13` is refused billing outright by a trigger:
+free rework exists because the clinic was at fault.
+
+### The sequencing gap from module 5 resolves here
+
+`procedure_session.billable_amount` and `treatment_procedure.unit_price` were
+NULL after module 5, because no price binds until a procedure is first invoiced.
+Triggers now fill both as each invoice line is created.
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_invoice_balance` | What is owed, netting refunds against receipts |
+| `v_invoice_detail` | The itemised bill, with the tax working shown |
+| `v_vat_check` | Proof the discount was allocated before VAT, per invoice |
+| `v_treatment_failure` | Failed work, the judgment, and what followed |
+
+### Verification, and a constraint bug the tests caught
+
+`integrity_check` ok, `foreign_key_check` zero rows, **17 negative tests** and
+**2 positive controls**.
+
+One test failed on the first run, and the constraint was genuinely wrong:
+
+```sql
+-- WRONG
+(status = 'Draft') = (number IS NULL AND serial IS NULL AND issued_at IS NULL)
+```
+
+An `Issued` invoice with `issued_at` set but **no number** passed it: the left
+side is 0, and so is the right, so the equality holds. The rule only forced the
+three fields to be NULL *together*; it never required them all to be *present*
+once issued. Rewritten as a `CASE`, and all four numbering cases now reject
+while a `Voided` invoice correctly keeps its number.

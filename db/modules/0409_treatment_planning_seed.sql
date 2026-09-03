@@ -32,7 +32,7 @@ INSERT INTO treatment_plan (id, patient_id, doctor_id, title, status, is_special
 ('tp-02','pp-02','st-doc04','Full fixed orthodontic course',   'PendingApproval',1,'Upfront',  NULL,        NULL,        'Class II div 1. Awaiting manager approval on the appliance course.',        '2026-08-25 10:00:00','2026-08-25 10:00:00'),
 ('tp-03','pp-03','st-doc01','Root canal and crown — #36',      'Active',        0,'PerSession','2026-09-03',  '2026-11-30','Irreversible pulpitis. RCT then crown.',                                    '2026-08-28 09:30:00','2026-08-30 14:00:00'),
 ('tp-04','pp-04','st-doc04','Six-month hygiene recall',        'Completed',     0,'PerSession','2026-09-02',  '2026-09-02','Routine recall, no active disease.',                                        '2026-08-30 11:00:00','2026-09-02 14:40:00'),
-('tp-05','pp-05','st-doc04','Whitening — staff',               'Draft',         0,'PerSession',NULL,        NULL,        'Dr Minh as a patient, treated by Dr Quỳnh. Earns him no commission.',        '2026-08-31 17:00:00','2026-08-31 17:00:00');
+('tp-05','pp-05','st-doc04','Whitening and hygiene — staff',   'Completed',     0,'PerSession','2026-09-01','2026-09-01','Dr Minh as a patient, treated by Dr Quỳnh. Earns him no commission.',        '2026-08-31 17:00:00','2026-09-01 16:30:00');
 
 -- ----------------------------------------------------------- the procedures --
 -- All start Proposed; decisions below move them.
@@ -47,7 +47,8 @@ INSERT INTO treatment_procedure (id, treatment_plan_id, service_category_id, mat
 ('pr-08','tp-03','sc-06','mo-crown-pfm',NULL, 2,2,'Crown prep then fit.'),
 ('pr-09','tp-03','sc-03','mo-fill-std', NULL, 3,1,'Small occlusal lesion on #37, opportunistic.'),
 ('pr-10','tp-04','sc-02',NULL,         'pi-03',1,1,'Scale and polish, OHI given.'),
-('pr-11','tp-05','sc-09',NULL,          NULL, 1,1,'In-clinic whitening session.');
+('pr-11','tp-05','sc-09',NULL,          NULL, 1,1,'In-clinic whitening session. VAT-bearing: cosmetic, not medical.'),
+('pr-12','tp-05','sc-02',NULL,         'pi-03',2,1,'Scale and polish at the same visit. Zero-rated: medical.');
 
 -- ------------------------------------------------------------- the decisions --
 -- Each procedure is walked from creation to its present state. from_status must
@@ -99,7 +100,16 @@ INSERT INTO procedure_decision (id, procedure_id, from_status, to_status, decide
 ('d-33','pr-10','Scheduled', 'InProgress','u-doc04','2026-09-02 14:00:00',NULL,NULL,NULL),
 ('d-34','pr-10','InProgress','Completed', 'u-doc04','2026-09-02 14:30:00',NULL,NULL,'Generalised mild calculus removed.'),
 -- pr-11 whitening for the staff patient, proposed only
-('d-35','pr-11',NULL,        'Proposed',  'u-doc04','2026-08-31 17:00:00',NULL,NULL,'Colleague treating a colleague.');
+('d-35','pr-11',NULL,        'Proposed',  'u-doc04','2026-08-31 17:00:00',NULL,NULL,'Colleague treating a colleague.'),
+('d-36','pr-11','Proposed',  'Accepted',  'u-rec01','2026-08-31 17:10:00',NULL,NULL,NULL),
+('d-37','pr-11','Accepted',  'Scheduled', 'u-rec01','2026-08-31 17:11:00',NULL,NULL,NULL),
+('d-38','pr-11','Scheduled', 'InProgress','u-doc04','2026-09-01 15:00:00',NULL,NULL,NULL),
+('d-39','pr-11','InProgress','Completed', 'u-doc04','2026-09-01 16:00:00',NULL,NULL,'Two shades lighter.'),
+('d-40','pr-12',NULL,        'Proposed',  'u-doc04','2026-08-31 17:00:00',NULL,NULL,NULL),
+('d-41','pr-12','Proposed',  'Accepted',  'u-rec01','2026-08-31 17:10:00',NULL,NULL,NULL),
+('d-42','pr-12','Accepted',  'Scheduled', 'u-rec01','2026-08-31 17:11:00',NULL,NULL,NULL),
+('d-43','pr-12','Scheduled', 'InProgress','u-doc04','2026-09-01 16:00:00',NULL,NULL,NULL),
+('d-44','pr-12','InProgress','Completed', 'u-doc04','2026-09-01 16:25:00',NULL,NULL,'Scale and polish completed.');
 
 -- --------------------------------------------------------------- proposals --
 INSERT INTO special_procedure_proposal (id, treatment_plan_id, proposed_by, service_category_id, clinical_justification, estimated_cost, status, reviewed_by, reviewed_at, review_note) VALUES

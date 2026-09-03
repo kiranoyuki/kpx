@@ -96,6 +96,9 @@ INSERT INTO procedure_session (id, procedure_id, session_number, appointment_id,
 ('ps-04','pr-05',1,'ap-02','Completed','st-doc04',NULL,      '2026-08-25 10:00:00','Records, photographs and study models taken.',NULL,NULL),
 ('ps-05','pr-07',1,NULL,   'Scheduled', 'st-doc01','st-ast01',NULL,NULL,NULL,'Single-visit RCT #36.'),
 -- pr-10 scaling, delivered by a different doctor and the intern assistant
-('ps-06','pr-10',1,'ap-06','Completed','st-doc04','st-ast01','2026-09-02 14:30:00','Full-mouth scale and polish. OHI given.','{"bp":"124/78","pulse":68}','Recall in six months.');
+('ps-06','pr-10',1,'ap-06','Completed','st-doc04','st-ast01','2026-09-02 14:30:00','Full-mouth scale and polish. OHI given.','{"bp":"124/78","pulse":68}','Recall in six months.'),
+-- a staff member treated by a colleague: one VAT-bearing service, one zero-rated
+('ps-07','pr-11',1,NULL,'Completed','st-doc04','st-ast01','2026-09-01 16:00:00','In-clinic LED whitening, two shades lighter.',NULL,NULL),
+('ps-08','pr-12',1,NULL,'Completed','st-doc04','st-ast01','2026-09-01 16:25:00','Scale and polish at the same visit.',NULL,NULL);
 
 COMMIT;
