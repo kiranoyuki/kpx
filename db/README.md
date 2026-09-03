@@ -620,14 +620,35 @@ it is currently *silent* rather than *decided*. If the accountant's cost
 reporting needs them, `inventory_item` would want its own `unit_cost` for the
 untracked case.
 
+### Six gaps found by auditing the module after it was built
+
+As with module 6, the tests passed and the audit was about what they did *not*
+cover. Two of these were live defects in the seed data.
+
+| Gap | What it allowed | Fix |
+|-----|-----------------|-----|
+| **FEFO was only advised** | Opening a newer box while an older usable one sat there — exactly the waste FEFO exists to prevent | `trg_log_fefo` refuses to skip an older unexpired lot |
+| **Expired stock was consumable** | A patient injected with anaesthetic past its date. **The seed did this** — lot `LD-2401` expired 2026-07-31 and was consumed on 2026-08-28 | `trg_log_no_expired_consumption`. Expired stock leaves by write-off, never by use |
+| **Batches could arrive pre-expired** | Receiving stock dated 2020 as if it were new | `ck_batch_not_born_expired` |
+| **Consumption against work that never happened** | Materials logged to a `Proposed` procedure. **The seed did this too** — `pr-09` had a completed session and an invoice line while its decision log still read `Accepted` | `trg_log_procedure_must_have_started`, and the log now walks `pr-09` to Completed |
+| **`v_supply_variance` compared unlike things** | A per-procedure expectation against a total: one cup per scaling across two scalings read as "1 vs 2", an apparent overrun that was not one | Both sides are now totals over the same procedures; variance reads 0 |
+| **Decision chains could go backwards in time** | Three procedures were `InProgress` *before* they were `Scheduled`, so "the latest decision" disagreed depending on whether you ordered by timestamp or by insertion | A trigger in module 4 requires `decided_at` to move forward, and the three chains are corrected |
+
+The two seed defects are the ones worth noting: both were **wrong data that no
+test was pointed at**, and both were caught by writing the constraint rather
+than by inspection.
+
 ### Verification
 
-`integrity_check` ok, `foreign_key_check` zero rows, **15 negative tests** all
-rejecting and **4 positive controls** accepted — covering a tracked item moved
+`integrity_check` ok, `foreign_key_check` zero rows, **19 negative tests** all
+rejecting and **6 positive controls** accepted — covering a tracked item moved
 without naming its lot, an untracked item given one, a batch from the wrong
 item, a false `quantity_after`, consumption beyond what a batch or item holds,
 every change type moving stock the wrong way, a zero movement, a pre-filled
 batch, a duplicate lot number, and supply lists owned by both or neither parent.
 
-Stock levels were also reconciled: for every tracked item, `quantity_on_hand`
-equals the sum of its batches' `quantity_remaining`.
+A standing regression now runs across all seven modules: stock reconciles to
+batch remainders, no expired stock was ever consumed, all consumption sits on
+work that actually started, no batch was born expired, invoice arithmetic holds,
+VAT is always on the net, and every procedure's status equals the head of its
+decision log.

@@ -7,7 +7,8 @@
 -- Deliberate edge cases:
 --   · Composite A2 has TWO batches — different expiry AND different unit cost,
 --     so FEFO picking and cost-of-goods both have something to bite on
---   · one batch is ALREADY EXPIRED with stock left: the write-off list
+--   · one batch EXPIRES with its full 50 units unused: the write-off list.
+--     Note it is never consumed after expiry — a trigger forbids that outright
 --   · one batch expires within 30 days: the early warning
 --   · two items do NOT track expiry (a mirror, a prophy cup) and so have no
 --     batches at all
@@ -70,7 +71,7 @@ INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantit
 -- ------------------------------------------------- what procedures consumed --
 -- FEFO in practice: the extraction drew lidocaine from the OLDEST usable lot.
 INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantity_delta, quantity_after, related_procedure_id, logged_by, logged_at, notes) VALUES
-('lg-12','it-lido',   'b-lido-x','Consumed', -2,248,'pr-02','u-ast01','2026-08-28 14:20:00','Extraction #46, two cartridges.'),
+('lg-12','it-lido',   'b-lido-s','Consumed', -2,248,'pr-02','u-ast01','2026-08-28 14:20:00','Extraction #46, two cartridges. LD-2401 was already expired, so drawn from LD-2503.'),
 ('lg-13','it-suture', 'b-sut',   'Consumed', -1,  9,'pr-02','u-ast01','2026-08-28 14:50:00','Socket closure.'),
 ('lg-14','it-prophy', NULL,      'Consumed', -1, 99,'pr-10','u-ast01','2026-09-02 14:30:00','Scale and polish.'),
 ('lg-15','it-prophy', NULL,      'Consumed', -1, 98,'pr-12','u-ast01','2026-09-01 16:25:00','Staff scale and polish.'),
@@ -82,7 +83,7 @@ INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantit
 -- b-lido-x is past its date with 48 cartridges left. This is the movement the
 -- 'Expired' change type existed for, and could not previously be recorded.
 INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantity_delta, quantity_after, logged_by, logged_at, notes) VALUES
-('lg-18','it-lido','b-lido-x','Expired',-48,199,'u-ast01','2026-08-01 08:00:00','Lot LD-2401 past expiry 2026-07-31. Written off.');
+('lg-18','it-lido','b-lido-x','Expired',-50,197,'u-ast01','2026-08-01 08:00:00','Lot LD-2401 past expiry 2026-07-31. All 50 cartridges written off — none were used after expiry.');
 
 -- ---------------------------------------- what procedures are SUPPOSED to use --
 -- Attached to the reusable instruction templates from module 4.

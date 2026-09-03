@@ -199,6 +199,12 @@ BEGIN
                     THEN (SELECT status FROM treatment_procedure WHERE id = NEW.procedure_id)
                     ELSE NULL END);
 
+    -- time must move forward. Without this, 'the latest decision' by timestamp
+    -- and by insertion order can disagree, and a procedure reads as InProgress
+    -- before it was ever Scheduled.
+    SELECT RAISE(ABORT, 'decided_at is earlier than the previous decision on this procedure')
+    WHERE NEW.decided_at < (SELECT MAX(decided_at) FROM procedure_decision WHERE procedure_id = NEW.procedure_id);
+
     -- only these transitions are clinically meaningful
     SELECT RAISE(ABORT, 'illegal status transition')
     WHERE NOT (

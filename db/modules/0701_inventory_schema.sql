@@ -63,7 +63,10 @@ CREATE TABLE inventory_batch (
     received_at       TEXT NOT NULL DEFAULT (datetime('now')),
 
     UNIQUE (inventory_item_id, lot_number),
-    CONSTRAINT ck_batch_remaining_within CHECK (quantity_remaining <= quantity_received)
+    CONSTRAINT ck_batch_remaining_within CHECK (quantity_remaining <= quantity_received),
+    -- receiving stock that has already expired is a data-entry error, not a
+    -- state to record. Write off an existing lot instead.
+    CONSTRAINT ck_batch_not_born_expired CHECK (expiry_date > date(received_at))
 );
 
 
@@ -212,19 +215,25 @@ ORDER BY b.expiry_date;
 
 -- Expected versus actual: the whole point of keeping the two tracks apart.
 CREATE VIEW v_supply_variance AS
+-- The first version compared a PER-PROCEDURE expectation against a TOTAL
+-- consumption, so one cup per scaling across two scalings read as "1 vs 2" and
+-- looked like an overrun. Both sides are now totals over the same procedures.
 SELECT sc.name AS service, i.name AS item, i.unit,
-       SUM(sl.quantity_required) AS expected_per_procedure,
-       COALESCE((SELECT SUM(-l.quantity_delta) FROM inventory_log l
-                 WHERE l.inventory_item_id = i.id AND l.change_type = 'Consumed'
-                   AND l.related_procedure_id IN (
-                       SELECT pr.id FROM treatment_procedure pr
-                       WHERE pr.instruction_set_id = sl.instruction_set_id)),0) AS actually_consumed
+       sl.quantity_required                        AS per_procedure,
+       COUNT(DISTINCT l.related_procedure_id)      AS procedures,
+       sl.quantity_required * COUNT(DISTINCT l.related_procedure_id) AS expected_total,
+       COALESCE(SUM(-l.quantity_delta), 0)         AS actual_total,
+       COALESCE(SUM(-l.quantity_delta), 0) - sl.quantity_required * COUNT(DISTINCT l.related_procedure_id) AS variance
 FROM procedure_supply_list sl
-JOIN inventory_item i        ON i.id = sl.inventory_item_id
+JOIN inventory_item i         ON i.id = sl.inventory_item_id
 JOIN procedure_instruction pi ON pi.id = sl.instruction_set_id
-JOIN service_category sc     ON sc.id = pi.service_category_id
+JOIN service_category sc      ON sc.id = pi.service_category_id
+LEFT JOIN treatment_procedure pr ON pr.instruction_set_id = sl.instruction_set_id
+LEFT JOIN inventory_log l     ON l.related_procedure_id = pr.id
+                             AND l.inventory_item_id = sl.inventory_item_id
+                             AND l.change_type = 'Consumed'
 WHERE sl.instruction_set_id IS NOT NULL
-GROUP BY sc.name, i.name, i.unit, sl.instruction_set_id
+GROUP BY sc.name, i.name, i.unit, sl.quantity_required, sl.instruction_set_id
 ORDER BY sc.name, i.name;
 
 -- What a procedure actually cost in materials, from the batches opened for it.
@@ -242,3 +251,58 @@ JOIN app_user pu             ON pu.id = pp.user_id
 JOIN service_category sc     ON sc.id = pr.service_category_id
 WHERE l.change_type = 'Consumed'
 ORDER BY l.related_procedure_id, i.name;
+
+
+-- =============================================================================
+-- TRIGGERS ADDED AFTER REVIEW
+--
+-- Auditing this module turned up four rules the schema stated in prose but
+-- never enforced. FEFO was a view, so nothing stopped opening a newer box;
+-- expired stock could be consumed; and consumption could be logged against work
+-- that had not happened.
+-- =============================================================================
+
+-- EXPIRED STOCK MUST NOT BE USED. This is the one non-negotiable rule here:
+-- everything else in the module is about waste, this is about the patient.
+-- A write-off is how expired stock leaves; consumption is not.
+CREATE TRIGGER trg_log_no_expired_consumption BEFORE INSERT ON inventory_log
+WHEN NEW.change_type = 'Consumed' AND NEW.batch_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'that lot has expired: it must be written off, not used')
+    WHERE (SELECT expiry_date FROM inventory_batch WHERE id = NEW.batch_id) < date(COALESCE(NEW.logged_at, datetime('now')));
+END;
+
+-- FEFO, enforced rather than advised: an older USABLE lot may not be skipped.
+-- Splitting a movement across lots still works — draw the old one down to zero
+-- and the next becomes the earliest with stock.
+CREATE TRIGGER trg_log_fefo BEFORE INSERT ON inventory_log
+WHEN NEW.change_type = 'Consumed' AND NEW.batch_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'an older unexpired lot still has stock: FEFO requires opening that one first')
+    WHERE EXISTS (
+        SELECT 1 FROM inventory_batch older
+        JOIN inventory_batch chosen ON chosen.id = NEW.batch_id
+        WHERE older.inventory_item_id = NEW.inventory_item_id
+          AND older.id <> chosen.id
+          AND older.quantity_remaining > 0
+          AND older.expiry_date >= date(COALESCE(NEW.logged_at, datetime('now')))
+          AND older.expiry_date < chosen.expiry_date);
+END;
+
+-- Materials are consumed BY work. Work that has not started cannot have
+-- consumed anything.
+CREATE TRIGGER trg_log_procedure_must_have_started BEFORE INSERT ON inventory_log
+WHEN NEW.related_procedure_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'that procedure has not started: it cannot have consumed anything')
+    WHERE (SELECT status FROM treatment_procedure WHERE id = NEW.related_procedure_id)
+          NOT IN ('Scheduled','InProgress','Completed');
+END;
+
+CREATE TRIGGER trg_log_procedure_must_have_started_upd BEFORE UPDATE OF related_procedure_id ON inventory_log
+WHEN NEW.related_procedure_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'that procedure has not started: it cannot have consumed anything')
+    WHERE (SELECT status FROM treatment_procedure WHERE id = NEW.related_procedure_id)
+          NOT IN ('Scheduled','InProgress','Completed');
+END;

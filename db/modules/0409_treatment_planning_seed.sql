@@ -55,9 +55,9 @@ INSERT INTO treatment_procedure (id, treatment_plan_id, service_category_id, mat
 -- match where the procedure actually is, so these are ordered chains.
 INSERT INTO procedure_decision (id, procedure_id, from_status, to_status, decided_by, decided_at, reason, risk_explained, note) VALUES
 -- pr-01 consultation, delivered
-('d-01','pr-01',NULL,        'Proposed',  'u-doc01','2026-08-25 09:40:00',NULL,NULL,'Plan presented.'),
-('d-02','pr-01','Proposed',  'Accepted',  'u-rec01','2026-08-25 09:55:00',NULL,NULL,'Patient accepted at the desk.'),
-('d-03','pr-01','Accepted',  'Scheduled', 'u-rec01','2026-08-25 09:56:00',NULL,NULL,NULL),
+('d-01','pr-01',NULL,        'Proposed',  'u-doc01','2026-08-24 15:30:00',NULL,NULL,'Plan presented by phone after the referral.'),
+('d-02','pr-01','Proposed',  'Accepted',  'u-rec01','2026-08-24 15:50:00',NULL,NULL,'Patient accepted by phone.'),
+('d-03','pr-01','Accepted',  'Scheduled', 'u-rec01','2026-08-24 16:00:00',NULL,NULL,'Booked the day before.'),
 ('d-04','pr-01','Scheduled', 'InProgress','u-doc01','2026-08-25 09:00:00',NULL,NULL,NULL),
 ('d-05','pr-01','InProgress','Completed', 'u-doc01','2026-08-25 09:45:00',NULL,NULL,'CBCT reviewed with patient.'),
 -- pr-02 extraction, delivered
@@ -73,9 +73,9 @@ INSERT INTO procedure_decision (id, procedure_id, from_status, to_status, decide
 -- pr-04 crown, still only proposed
 ('d-14','pr-04',NULL,        'Proposed',  'u-doc01','2026-08-25 09:40:00',NULL,NULL,'Zirconia quoted; decision deferred until the fixture integrates.'),
 -- pr-05 ortho consultation, delivered
-('d-15','pr-05',NULL,        'Proposed',  'u-doc04','2026-08-25 10:00:00',NULL,NULL,NULL),
-('d-16','pr-05','Proposed',  'Accepted',  'u-rec01','2026-08-25 10:05:00',NULL,NULL,NULL),
-('d-17','pr-05','Accepted',  'Scheduled', 'u-rec01','2026-08-25 10:06:00',NULL,NULL,NULL),
+('d-15','pr-05',NULL,        'Proposed',  'u-doc04','2026-08-24 16:10:00',NULL,NULL,NULL),
+('d-16','pr-05','Proposed',  'Accepted',  'u-rec01','2026-08-24 16:20:00',NULL,NULL,NULL),
+('d-17','pr-05','Accepted',  'Scheduled', 'u-rec01','2026-08-24 16:30:00',NULL,NULL,NULL),
 ('d-18','pr-05','Scheduled', 'InProgress','u-doc04','2026-08-25 09:00:00',NULL,NULL,NULL),
 ('d-19','pr-05','InProgress','Completed', 'u-doc04','2026-08-25 10:00:00',NULL,NULL,'Records and photographs taken.'),
 -- pr-06 braces: proposed only, blocked behind manager approval
@@ -83,7 +83,7 @@ INSERT INTO procedure_decision (id, procedure_id, from_status, to_status, decide
 -- pr-07 root canal, accepted and scheduled
 ('d-21','pr-07',NULL,        'Proposed',  'u-doc01','2026-08-28 09:30:00',NULL,NULL,NULL),
 ('d-22','pr-07','Proposed',  'Accepted',  'u-rec01','2026-08-28 09:35:00',NULL,NULL,NULL),
-('d-23','pr-07','Accepted',  'Scheduled', 'u-rec01','2026-08-28 09:20:00',NULL,NULL,NULL),
+('d-23','pr-07','Accepted',  'Scheduled', 'u-rec01','2026-08-28 09:40:00',NULL,NULL,NULL),
 -- pr-08 crown, accepted
 ('d-24','pr-08',NULL,        'Proposed',  'u-doc01','2026-08-28 09:30:00',NULL,NULL,NULL),
 ('d-25','pr-08','Proposed',  'Accepted',  'u-rec01','2026-08-28 09:35:00',NULL,NULL,NULL),
@@ -93,6 +93,9 @@ INSERT INTO procedure_decision (id, procedure_id, from_status, to_status, decide
 ('d-27','pr-09','Proposed',  'Declined',  'u-rec01','2026-08-28 09:40:00','Patient declined on cost; wants to wait.',1,'Explained that an untreated lesion progresses and may reach the pulp.'),
 ('d-28','pr-09','Declined',  'Proposed',  'u-doc01','2026-08-30 14:00:00',NULL,NULL,'Re-offered at review; lesion visibly larger.'),
 ('d-29','pr-09','Proposed',  'Accepted',  'u-rec01','2026-08-30 14:10:00',NULL,NULL,'Patient accepted on the second offer.'),
+('d-47','pr-09','Accepted',  'Scheduled', 'u-rec01','2026-09-01 09:00:00',NULL,NULL,NULL),
+('d-48','pr-09','Scheduled', 'InProgress','u-doc01','2026-09-03 10:00:00',NULL,NULL,NULL),
+('d-49','pr-09','InProgress','Completed', 'u-doc01','2026-09-03 10:35:00',NULL,NULL,'MOD composite placed on 37.'),
 -- pr-10 hygiene, delivered
 ('d-30','pr-10',NULL,        'Proposed',  'u-doc04','2026-08-30 11:00:00',NULL,NULL,NULL),
 ('d-31','pr-10','Proposed',  'Accepted',  'u-rec01','2026-08-30 11:05:00',NULL,NULL,NULL),
