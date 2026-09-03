@@ -3,7 +3,7 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: modules 1–6 of 9 complete.**
+**Status: modules 1–7 of 9 complete.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
@@ -13,7 +13,7 @@ Built one module at a time, following `Design/build-plan.md`.
 | 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | ✅ |
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | ✅ |
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | ✅ |
-| 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list | — |
+| 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list | ✅ |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
 | 9 | Notifications | notification | — |
 
@@ -554,3 +554,80 @@ side is 0, and so is the right, so the equality holds. The rule only forced the
 three fields to be NULL *together*; it never required them all to be *present*
 once issued. Rewritten as a `CASE`, and all four numbering cases now reject
 while a `Voided` invoice correctly keeps its number.
+
+
+---
+
+## Module 7 — Inventory
+
+5 tables, 5 views, 3 triggers. 3 vendors, 8 items, 9 batches, 20 movements.
+
+### The log is the source of truth
+
+Nothing writes `quantity_on_hand` or `quantity_remaining` directly. Every
+movement goes through `inventory_log`, and a trigger applies it to both the
+batch and the item. `quantity_after` is a snapshot the caller supplies, and a
+second trigger **rejects it if it does not follow** from the current level plus
+the delta — so a log that lies about its own effect cannot be written.
+
+A new batch must start at `quantity_remaining = 0` and be filled by a
+`Restocked` log, rather than arriving pre-populated. That keeps one path in.
+
+### Expiry belongs to the batch
+
+Composite A2 is the case: **two deliveries, two expiries, two costs.**
+
+| Lot | Expiry | Remaining | Unit cost |
+|-----|--------|-----------|-----------|
+| CA2-2405 | 2026-11-30 | 8 | 180,000 |
+| CA2-2508 | 2027-06-30 | 20 | 210,000 |
+
+`v_pick_order` ranks batches earliest-expiry-first, which is what stops usable
+stock quietly expiring behind newer stock. The three-surface filling drew from
+the **older 180,000 lot**, and `v_procedure_material_cost` reports its material
+cost accordingly. Without a per-batch cost that figure would be a guess.
+
+### The `Expired` change type finally has something to drive it
+
+Lot `LD-2401` lidocaine expired on 2026-07-31 with 48 cartridges left —
+**1,056,000 written off**, recorded as a movement rather than silently
+disappearing. That enum value existed from the first design and until now
+nothing could produce it.
+
+### Two tracks, meeting at the item
+
+`procedure_supply_list` says what a procedure *should* need — attached to a
+reusable instruction template, or to one specific procedure, never both.
+`inventory_log` records what it *actually* consumed. `v_supply_variance`
+compares them, which is the whole reason the two are kept apart.
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_pick_order` | FEFO: which lot to open next, and what is expiring |
+| `v_low_stock` | What to reorder, and who to call |
+| `v_expired_stock` | Batches past their date still holding stock, and the value at risk |
+| `v_supply_variance` | Expected versus actual consumption |
+| `v_procedure_material_cost` | What a procedure cost in materials, from the lots opened |
+
+### A gap worth deciding on
+
+**Untracked items have no cost basis.** `unit_cost` lives on the batch, and an
+item with `tracks_expiry = 0` has no batches — so a prophy cup consumed on two
+procedures reports a NULL cost. Cheap consumables, so arguably immaterial, but
+it is currently *silent* rather than *decided*. If the accountant's cost
+reporting needs them, `inventory_item` would want its own `unit_cost` for the
+untracked case.
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, **15 negative tests** all
+rejecting and **4 positive controls** accepted — covering a tracked item moved
+without naming its lot, an untracked item given one, a batch from the wrong
+item, a false `quantity_after`, consumption beyond what a batch or item holds,
+every change type moving stock the wrong way, a zero movement, a pre-filled
+batch, a duplicate lot number, and supply lists owned by both or neither parent.
+
+Stock levels were also reconciled: for every tracked item, `quantity_on_hand`
+equals the sum of its batches' `quantity_remaining`.
