@@ -9,10 +9,19 @@
 -- procedure SHOULD need, inventory_log records what it actually consumed.
 -- Comparing them is what makes variance visible.
 --
+-- MATERIALS versus EQUIPMENT is the primary split, because they have different
+-- lifecycles. A material is consumed and EXPIRES; equipment is reused, BREAKS,
+-- is serviced, and is eventually retired.
+--
+-- An earlier version put both in inventory_item behind a tracks_expiry flag,
+-- which was a proxy for "is this equipment?" phrased as a fact about shelf
+-- life. It left a hole: unit_cost lives on the batch, so an item with no
+-- batches had nowhere to record what it cost. Splitting the two closes it —
+-- every material has batches, so cost always has a home, and equipment carries
+-- its purchase cost directly.
+--
 -- Expiry belongs to the BATCH, not the item: ten boxes bought on two dates
--- expire on two dates, and only a batch can say which. That is also what gives
--- unit cost somewhere to live, and therefore what makes cost of goods
--- answerable at all.
+-- expire on two dates, and only a batch can say which.
 -- =============================================================================
 
 PRAGMA foreign_keys = ON;
@@ -30,20 +39,62 @@ CREATE TABLE vendor (
 );
 
 
+-- MATERIALS ONLY: things the clinic consumes and that expire.
+--
+-- Equipment used to live here behind a tracks_expiry = 0 flag, which was a
+-- proxy for "is this equipment?" dressed up as a fact about shelf life. It also
+-- created a hole: unit_cost lives on the batch, so an item with no batches had
+-- nowhere to record what it cost. Equipment is now its own table with its own
+-- lifecycle, and every material has batches — so cost always has a home.
 CREATE TABLE inventory_item (
     id                TEXT PRIMARY KEY,
     name              TEXT NOT NULL UNIQUE,
     unit              TEXT NOT NULL,              -- box, piece, ml, cartridge
-    -- for a tracked item this is the sum of its batches, maintained by trigger
+    -- always the sum of this item's batches, maintained by trigger
     quantity_on_hand  NUMERIC NOT NULL DEFAULT 0 CHECK (quantity_on_hand >= 0),
     reorder_threshold NUMERIC NOT NULL DEFAULT 0 CHECK (reorder_threshold >= 0),
-    -- true for perishables: composite, anaesthetic, sutures. False for a mirror
-    -- or a handpiece, which never expire and need no batches.
-    tracks_expiry     INTEGER NOT NULL DEFAULT 0 CHECK (tracks_expiry IN (0,1)),
     vendor_id         TEXT REFERENCES vendor(id),
     category          TEXT NOT NULL DEFAULT 'Consumable'
-                          CHECK (category IN ('Consumable','Equipment','Medication','Lab')),
+                          CHECK (category IN ('Consumable','Medication','Lab')),
     last_restocked_at TEXT
+);
+
+
+-- EQUIPMENT: durable, reusable, and maintained rather than consumed. It does
+-- not expire — it breaks, gets serviced, and is eventually retired. Same
+-- lifecycle shape as `chair`, which is itself a piece of equipment that happens
+-- to be bookable.
+CREATE TABLE equipment (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    serial_number  TEXT UNIQUE,               -- for warranty and service records
+    vendor_id      TEXT REFERENCES vendor(id),
+    purchase_date  TEXT,
+    -- cost sits directly on the asset: equipment is bought once, not in lots
+    purchase_cost  NUMERIC CHECK (purchase_cost IS NULL OR purchase_cost >= 0),
+    status         TEXT NOT NULL DEFAULT 'InService'
+                       CHECK (status IN ('InService','UnderMaintenance','Retired')),
+    retired_on     TEXT,
+    location       TEXT,
+    notes          TEXT,
+
+    CONSTRAINT ck_equip_retired_has_date CHECK (
+        (status = 'Retired') = (retired_on IS NOT NULL))
+);
+
+
+-- Service history. The equipment equivalent of an expiry date: what keeps a
+-- handpiece safe is being serviced, not being thrown away on a date.
+CREATE TABLE equipment_maintenance (
+    id             TEXT PRIMARY KEY,
+    equipment_id   TEXT NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+    type           TEXT NOT NULL CHECK (type IN ('Routine','Repair','Calibration','Inspection')),
+    performed_at   TEXT NOT NULL,
+    performed_by   TEXT REFERENCES app_user(id),   -- NULL when an outside engineer did it
+    vendor_id      TEXT REFERENCES vendor(id),
+    cost           NUMERIC CHECK (cost IS NULL OR cost >= 0),
+    next_due_date  TEXT,
+    notes          TEXT
 );
 
 
@@ -77,7 +128,7 @@ CREATE TABLE inventory_log (
     inventory_item_id    TEXT NOT NULL REFERENCES inventory_item(id) ON DELETE CASCADE,
     -- required for items that track expiry, so consumption and write-offs name
     -- the lot they came from
-    batch_id             TEXT REFERENCES inventory_batch(id),
+    batch_id             TEXT NOT NULL REFERENCES inventory_batch(id),
     change_type          TEXT NOT NULL CHECK (change_type IN ('Consumed','Restocked','Adjusted','Expired')),
     quantity_delta       NUMERIC NOT NULL CHECK (quantity_delta <> 0),   -- + added, - removed
     quantity_after       NUMERIC NOT NULL CHECK (quantity_after >= 0),   -- snapshot
@@ -117,6 +168,10 @@ CREATE UNIQUE INDEX uq_supply_procedure ON procedure_supply_list(procedure_id, i
 
 
 CREATE INDEX idx_item_vendor      ON inventory_item(vendor_id);
+CREATE INDEX idx_equip_status     ON equipment(status);
+CREATE INDEX idx_equip_vendor     ON equipment(vendor_id);
+CREATE INDEX idx_maint_equipment  ON equipment_maintenance(equipment_id, performed_at DESC);
+CREATE INDEX idx_maint_due        ON equipment_maintenance(next_due_date);
 CREATE INDEX idx_item_low         ON inventory_item(quantity_on_hand, reorder_threshold);
 CREATE INDEX idx_batch_item       ON inventory_batch(inventory_item_id, expiry_date);
 CREATE INDEX idx_batch_expiry     ON inventory_batch(expiry_date) WHERE quantity_remaining > 0;
@@ -130,17 +185,9 @@ CREATE INDEX idx_supply_item      ON procedure_supply_list(inventory_item_id);
 -- TRIGGERS
 -- =============================================================================
 
--- A tracked item must name its lot; an untracked one has none to name.
+-- Every movement names its lot: materials are always batched.
 CREATE TRIGGER trg_log_batch_required BEFORE INSERT ON inventory_log
 BEGIN
-    SELECT RAISE(ABORT, 'this item tracks expiry: the movement must name a batch')
-    WHERE NEW.batch_id IS NULL
-      AND (SELECT tracks_expiry FROM inventory_item WHERE id = NEW.inventory_item_id) = 1;
-
-    SELECT RAISE(ABORT, 'this item does not track expiry: it has no batches')
-    WHERE NEW.batch_id IS NOT NULL
-      AND (SELECT tracks_expiry FROM inventory_item WHERE id = NEW.inventory_item_id) = 0;
-
     SELECT RAISE(ABORT, 'that batch belongs to a different item')
     WHERE NEW.batch_id IS NOT NULL
       AND (SELECT inventory_item_id FROM inventory_batch WHERE id = NEW.batch_id)
@@ -243,7 +290,7 @@ SELECT pu.full_name AS patient, sc.name AS service, l.related_procedure_id AS pr
        (-l.quantity_delta) * b.unit_cost AS cost
 FROM inventory_log l
 JOIN inventory_item i        ON i.id = l.inventory_item_id
-LEFT JOIN inventory_batch b  ON b.id = l.batch_id
+JOIN inventory_batch b       ON b.id = l.batch_id
 JOIN treatment_procedure pr  ON pr.id = l.related_procedure_id
 JOIN treatment_plan tp       ON tp.id = pr.treatment_plan_id
 JOIN patient_profile pp      ON pp.id = tp.patient_id
@@ -266,7 +313,7 @@ ORDER BY l.related_procedure_id, i.name;
 -- everything else in the module is about waste, this is about the patient.
 -- A write-off is how expired stock leaves; consumption is not.
 CREATE TRIGGER trg_log_no_expired_consumption BEFORE INSERT ON inventory_log
-WHEN NEW.change_type = 'Consumed' AND NEW.batch_id IS NOT NULL
+WHEN NEW.change_type = 'Consumed'
 BEGIN
     SELECT RAISE(ABORT, 'that lot has expired: it must be written off, not used')
     WHERE (SELECT expiry_date FROM inventory_batch WHERE id = NEW.batch_id) < date(COALESCE(NEW.logged_at, datetime('now')));
@@ -276,7 +323,7 @@ END;
 -- Splitting a movement across lots still works — draw the old one down to zero
 -- and the next becomes the earliest with stock.
 CREATE TRIGGER trg_log_fefo BEFORE INSERT ON inventory_log
-WHEN NEW.change_type = 'Consumed' AND NEW.batch_id IS NOT NULL
+WHEN NEW.change_type = 'Consumed'
 BEGIN
     SELECT RAISE(ABORT, 'an older unexpired lot still has stock: FEFO requires opening that one first')
     WHERE EXISTS (
@@ -306,3 +353,22 @@ BEGIN
     WHERE (SELECT status FROM treatment_procedure WHERE id = NEW.related_procedure_id)
           NOT IN ('Scheduled','InProgress','Completed');
 END;
+
+
+-- Equipment: what is in service, what is being fixed, and what is due a service.
+CREATE VIEW v_equipment_status AS
+SELECT e.name, e.serial_number, e.status, e.location,
+       e.purchase_date, e.purchase_cost,
+       v.name AS vendor,
+       (SELECT MAX(m.performed_at) FROM equipment_maintenance m WHERE m.equipment_id = e.id) AS last_serviced,
+       (SELECT MIN(m.next_due_date) FROM equipment_maintenance m
+         WHERE m.equipment_id = e.id AND m.next_due_date >= date('now')) AS next_due,
+       CASE WHEN e.status = 'Retired' THEN 'retired'
+            WHEN e.status = 'UnderMaintenance' THEN 'out of service'
+            WHEN EXISTS (SELECT 1 FROM equipment_maintenance m
+                          WHERE m.equipment_id = e.id AND m.next_due_date < date('now'))
+                 THEN 'SERVICE OVERDUE'
+            ELSE 'ok' END AS state
+FROM equipment e
+LEFT JOIN vendor v ON v.id = e.vendor_id
+ORDER BY e.name;

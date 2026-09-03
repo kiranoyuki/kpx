@@ -13,7 +13,7 @@ Built one module at a time, following `Design/build-plan.md`.
 | 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | ✅ |
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | ✅ |
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | ✅ |
-| 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list | ✅ |
+| 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list, equipment, equipment_maintenance | ✅ |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
 | 9 | Notifications | notification | — |
 
@@ -611,36 +611,49 @@ compares them, which is the whole reason the two are kept apart.
 | `v_supply_variance` | Expected versus actual consumption |
 | `v_procedure_material_cost` | What a procedure cost in materials, from the lots opened |
 
-### A gap worth deciding on
+### Materials and equipment are different things
 
-**Untracked items have no cost basis.** `unit_cost` lives on the batch, and an
-item with `tracks_expiry = 0` has no batches — so a prophy cup consumed on two
-procedures reports a NULL cost. Cheap consumables, so arguably immaterial, but
-it is currently *silent* rather than *decided*. If the accountant's cost
-reporting needs them, `inventory_item` would want its own `unit_cost` for the
-untracked case.
+The first version put both in `inventory_item` behind a `tracks_expiry` flag.
+That flag was really asking *"is this equipment?"* while phrased as a fact about
+shelf life — and the correlation in the data was exact: the one item marked
+untracked was the one piece of equipment.
 
-### Six gaps found by auditing the module after it was built
+It also left a hole. `unit_cost` lives on the batch, so an item with no batches
+had **nowhere to record what it cost**. Prophy cups consumed on two procedures
+reported a NULL material cost.
 
-As with module 6, the tests passed and the audit was about what they did *not*
-cover. Two of these were live defects in the seed data.
+The two have genuinely different lifecycles:
 
-| Gap | What it allowed | Fix |
-|-----|-----------------|-----|
-| **FEFO was only advised** | Opening a newer box while an older usable one sat there — exactly the waste FEFO exists to prevent | `trg_log_fefo` refuses to skip an older unexpired lot |
-| **Expired stock was consumable** | A patient injected with anaesthetic past its date. **The seed did this** — lot `LD-2401` expired 2026-07-31 and was consumed on 2026-08-28 | `trg_log_no_expired_consumption`. Expired stock leaves by write-off, never by use |
-| **Batches could arrive pre-expired** | Receiving stock dated 2020 as if it were new | `ck_batch_not_born_expired` |
-| **Consumption against work that never happened** | Materials logged to a `Proposed` procedure. **The seed did this too** — `pr-09` had a completed session and an invoice line while its decision log still read `Accepted` | `trg_log_procedure_must_have_started`, and the log now walks `pr-09` to Completed |
-| **`v_supply_variance` compared unlike things** | A per-procedure expectation against a total: one cup per scaling across two scalings read as "1 vs 2", an apparent overrun that was not one | Both sides are now totals over the same procedures; variance reads 0 |
-| **Decision chains could go backwards in time** | Three procedures were `InProgress` *before* they were `Scheduled`, so "the latest decision" disagreed depending on whether you ordered by timestamp or by insertion | A trigger in module 4 requires `decided_at` to move forward, and the three chains are corrected |
+| | Material | Equipment |
+|---|----------|-----------|
+| Ends by | being **consumed**, or **expiring** | **breaking**, or being **retired** |
+| Kept safe by | a use-by date | being **serviced** |
+| Bought as | lots, at a price per lot | an asset, at one price |
+| Lifecycle | batch in, batch out | InService → UnderMaintenance → Retired |
 
-The two seed defects are the ones worth noting: both were **wrong data that no
-test was pointed at**, and both were caught by writing the constraint rather
-than by inspection.
+So `inventory_item` is now **materials only** — always batched, so cost always
+has a home — and `equipment` is its own table carrying `purchase_cost` directly,
+with `equipment_maintenance` for its service history. `tracks_expiry` is gone;
+`category` is restricted to Consumable, Medication and Lab.
+
+Two reclassifications fell out of it:
+
+- The **dental mirror** became equipment, alongside handpieces, the autoclave and
+  a retired scaler.
+- The **prophy cup** turned out to be a *material* I had mislabelled — sterile,
+  single-use, consumed. It now has a lot and a shelf life like anything else,
+  and its cost appears. That was the whole of the reported hole.
+
+`equipment.status` is deliberately the same shape as `chair.status`. A chair
+*is* equipment — one that happens to be bookable — and the two are kept separate
+only because a chair's primary role is scheduling capacity.
+
+`v_equipment_status` reports what is in service, what is away for repair, and
+what is **overdue a service** — the equipment equivalent of an expiry alert.
 
 ### Verification
 
-`integrity_check` ok, `foreign_key_check` zero rows, **19 negative tests** all
+`integrity_check` ok, `foreign_key_check` zero rows, **26 negative tests** all
 rejecting and **6 positive controls** accepted — covering a tracked item moved
 without naming its lot, an untracked item given one, a batch from the wrong
 item, a false `quantity_after`, consumption beyond what a batch or item holds,

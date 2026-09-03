@@ -10,8 +10,8 @@
 --   · one batch EXPIRES with its full 50 units unused: the write-off list.
 --     Note it is never consumed after expiry — a trigger forbids that outright
 --   · one batch expires within 30 days: the early warning
---   · two items do NOT track expiry (a mirror, a prophy cup) and so have no
---     batches at all
+--   · equipment is a SEPARATE table with its own lifecycle: in service, under
+--     maintenance, retired — plus a service history and an overdue check
 --   · one item is below its reorder threshold, one is at zero
 -- =============================================================================
 
@@ -27,16 +27,32 @@ INSERT INTO vendor (id, name, contact_person, phone, email, address, notes, is_a
 
 -- ------------------------------------------------------------------ items --
 -- quantity_on_hand starts at 0 everywhere: stock arrives through the log.
-INSERT INTO inventory_item (id, name, unit, quantity_on_hand, reorder_threshold, tracks_expiry, vendor_id, category) VALUES
-('it-comp-a2','Composite A2',              'syringe',0, 5,1,'v-03','Consumable'),
-('it-comp-a3','Composite A3',              'syringe',0, 5,1,'v-03','Consumable'),
-('it-lido',   'Lidocaine 2% w/ adrenaline','cartridge',0,20,1,'v-01','Medication'),
-('it-fixture','Osstem TS III 4.0x10',      'piece', 0, 2,1,'v-02','Consumable'),
-('it-suture', 'Suture 4-0 silk',           'pack',  0, 3,1,'v-01','Consumable'),
-('it-zir',    'Zirconia blank 98mm',       'disc',  0, 1,1,'v-03','Lab'),
--- these never expire, so they carry no batches
-('it-mirror', 'Dental mirror #4',          'piece', 0, 5,0,'v-01','Equipment'),
-('it-prophy', 'Prophy cup, soft',          'piece', 0,20,0,'v-01','Consumable');
+-- MATERIALS: consumed, batched, and they expire. Every one has a cost, because
+-- every one has batches.
+INSERT INTO inventory_item (id, name, unit, quantity_on_hand, reorder_threshold, vendor_id, category) VALUES
+('it-comp-a2','Composite A2',              'syringe',  0, 5,'v-03','Consumable'),
+('it-comp-a3','Composite A3',              'syringe',  0, 5,'v-03','Consumable'),
+('it-lido',   'Lidocaine 2% w/ adrenaline','cartridge',0,20,'v-01','Medication'),
+('it-fixture','Osstem TS III 4.0x10',      'piece',    0, 2,'v-02','Consumable'),
+('it-suture', 'Suture 4-0 silk',           'pack',     0, 3,'v-01','Consumable'),
+('it-zir',    'Zirconia blank 98mm',       'disc',     0, 1,'v-03','Lab'),
+-- a prophy cup is single-use and sterile: a material, not equipment. It was
+-- mislabelled before, which is what left it with no cost basis.
+('it-prophy', 'Prophy cup, soft',          'piece',    0,20,'v-01','Consumable');
+
+-- EQUIPMENT: reused, serviced, retired. Cost sits on the asset itself.
+INSERT INTO equipment (id, name, serial_number, vendor_id, purchase_date, purchase_cost, status, retired_on, location, notes) VALUES
+('eq-mirror','Dental mirror set #4', NULL,        'v-01','2026-05-12',   540000,'InService',       NULL,        'Ghế 1','Set of twelve.'),
+('eq-hp-01', 'High-speed handpiece', 'NSK-884120','v-01','2025-03-04',  8500000,'InService',       NULL,        'Ghế 1','Serviced every 6 months.'),
+('eq-hp-02', 'High-speed handpiece', 'NSK-884121','v-01','2025-03-04',  8500000,'UnderMaintenance',NULL,        'Workshop','Bearing noise; away for repair.'),
+('eq-auto',  'Autoclave 23L',        'MEL-2201',  'v-01','2024-11-20', 42000000,'InService',       NULL,        'Sterile room','Annual validation required.'),
+('eq-scaler','Ultrasonic scaler',    'EMS-5510',  'v-03','2023-06-15', 19000000,'Retired',         '2026-06-30','Store room','Replaced 2026-06; kept for parts.');
+
+INSERT INTO equipment_maintenance (id, equipment_id, type, performed_at, performed_by, vendor_id, cost, next_due_date, notes) VALUES
+('em-01','eq-hp-01','Routine',   '2026-03-04',NULL,      'v-01', 450000,'2026-09-04','Lubrication and turbine check.'),
+('em-02','eq-hp-02','Repair',    '2026-08-28',NULL,      'v-01',1800000,NULL,        'Bearing replacement, in progress.'),
+('em-03','eq-auto', 'Inspection','2026-01-15',NULL,      'v-01',2200000,'2027-01-15','Annual pressure-vessel validation.'),
+('em-04','eq-auto', 'Routine',   '2026-07-01','u-ast01', NULL,        0,'2026-10-01','Gasket and filter check, done in house.');
 
 -- ---------------------------------------------------------------- batches --
 -- Every batch starts empty; the Restocked log below fills it.
@@ -51,7 +67,9 @@ INSERT INTO inventory_batch (id, inventory_item_id, lot_number, expiry_date, ven
 ('b-lido-n','it-lido',  'LD-2601','2027-08-31','v-01',100,0,24000,'2026-08-20 09:00:00'),
 ('b-fix',   'it-fixture','OS-TS3-2604','2029-04-30','v-02',4,0,4200000,'2026-07-01 09:00:00'),
 ('b-sut',   'it-suture','SU-2502','2027-02-28','v-01',10,0,85000,'2026-05-12 09:00:00'),
-('b-zir',   'it-zir',   'ZR-2507','2028-07-31','v-03',3,0,2800000,'2026-07-18 09:00:00');
+('b-zir',   'it-zir',   'ZR-2507','2028-07-31','v-03',3,0,2800000,'2026-07-18 09:00:00'),
+-- a prophy cup is sterile single-use: it has a lot and a shelf life like any other material
+('b-prophy','it-prophy','PC-2504','2028-04-30','v-01',100,0,3500,'2026-05-12 09:00:00');
 
 -- ------------------------------------------------------- stock arriving in --
 INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantity_delta, quantity_after, logged_by, logged_at, notes) VALUES
@@ -64,17 +82,15 @@ INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantit
 ('lg-07','it-fixture','b-fix',   'Restocked',  4,  4,'u-ast01','2026-07-01 09:10:00','Four fixtures, one size.'),
 ('lg-08','it-suture', 'b-sut',   'Restocked', 10, 10,'u-ast01','2026-05-12 09:10:00',NULL),
 ('lg-09','it-zir',    'b-zir',   'Restocked',  3,  3,'u-ast01','2026-07-18 09:10:00',NULL),
--- untracked items: no batch to name
-('lg-10','it-mirror', NULL,      'Restocked', 12, 12,'u-ast01','2026-05-12 09:10:00',NULL),
-('lg-11','it-prophy', NULL,      'Restocked',100,100,'u-ast01','2026-05-12 09:10:00',NULL);
+('lg-11','it-prophy','b-prophy','Restocked',100,100,'u-ast01','2026-05-12 09:10:00','Mirrors are equipment now, not stock.');
 
 -- ------------------------------------------------- what procedures consumed --
 -- FEFO in practice: the extraction drew lidocaine from the OLDEST usable lot.
 INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantity_delta, quantity_after, related_procedure_id, logged_by, logged_at, notes) VALUES
 ('lg-12','it-lido',   'b-lido-s','Consumed', -2,248,'pr-02','u-ast01','2026-08-28 14:20:00','Extraction #46, two cartridges. LD-2401 was already expired, so drawn from LD-2503.'),
 ('lg-13','it-suture', 'b-sut',   'Consumed', -1,  9,'pr-02','u-ast01','2026-08-28 14:50:00','Socket closure.'),
-('lg-14','it-prophy', NULL,      'Consumed', -1, 99,'pr-10','u-ast01','2026-09-02 14:30:00','Scale and polish.'),
-('lg-15','it-prophy', NULL,      'Consumed', -1, 98,'pr-12','u-ast01','2026-09-01 16:25:00','Staff scale and polish.'),
+('lg-14','it-prophy','b-prophy','Consumed', -1, 99,'pr-10','u-ast01','2026-09-02 14:30:00','Scale and polish.'),
+('lg-15','it-prophy','b-prophy','Consumed', -1, 98,'pr-12','u-ast01','2026-09-01 16:25:00','Staff scale and polish.'),
 -- the three-surface filling: two syringes from the OLDER composite lot
 ('lg-16','it-comp-a2','b-a2-old','Consumed', -2, 28,'pr-09','u-ast01','2026-09-03 10:30:00','MOD composite on 37, shade A2.'),
 ('lg-17','it-lido',   'b-lido-s','Consumed', -1,247,'pr-09','u-ast01','2026-09-03 10:05:00','Local anaesthetic.');
