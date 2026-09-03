@@ -42,7 +42,7 @@ INSERT INTO tooth_condition (id, patient_id, tooth_code, surfaces, condition_typ
 -- pp-03: THE ONE-FINDING-TWO-PROCEDURES CASE.
 -- Deep caries on 36 needs a root canal AND a crown.
 ('tc-07','pp-03','36','MOD','Caries','Active','Severe','Deep caries into the pulp chamber. Needs endodontics, then a crown to protect the remaining structure.','pr-07','u-doc01','2026-08-28 09:35:00',NULL),
-('tc-08','pp-03','37','O',  'Caries','Active','Mild','Small occlusal lesion. Declined at first offer, accepted at review.','pr-07','u-doc01','2026-08-28 09:35:00',NULL),
+('tc-08','pp-03','37','MOD','Caries','Active','Moderate','Three-surface lesion. Declined at first offer, accepted at review.','pr-07','u-doc01','2026-08-28 09:35:00',NULL),
 -- charted MID-TREATMENT, not at an exam: spotted while working on 36
 ('tc-09','pp-03','35',NULL, 'Sensitivity','Monitoring','Mild','Reported during the root canal appointment. No caries visible.','pr-07','u-doc01','2026-08-28 09:50:00',NULL),
 -- entered in error: charted on the wrong tooth, corrected by a new row, NOT deleted
@@ -69,7 +69,7 @@ INSERT INTO procedure_tooth (id, procedure_id, tooth_code, surfaces, addresses_c
 -- ONE FINDING (tc-07), TWO PROCEDURES: the root canal and then the crown
 ('pt-04','pr-07','36','MOD','tc-07',NULL,'Endodontic access through the caries.'),
 ('pt-05','pr-08','36',NULL, 'tc-07',NULL,'Crown to protect the endodontically treated tooth.'),
-('pt-06','pr-09','37','O',  'tc-08',NULL,'Composite restoration.'),
+('pt-06','pr-09','37','MOD','tc-08',NULL,'Three-surface composite restoration — billed PerSurface, quantity 3.'),
 -- ONE PROCEDURE (pr-10 scaling), SIX FINDINGS: one row per tooth
 ('pt-07','pr-10','31',NULL,'tc-11',NULL,NULL),
 ('pt-08','pr-10','32',NULL,'tc-12',NULL,NULL),
@@ -99,6 +99,8 @@ INSERT INTO procedure_session (id, procedure_id, session_number, appointment_id,
 ('ps-06','pr-10',1,'ap-06','Completed','st-doc04','st-ast01','2026-09-02 14:30:00','Full-mouth scale and polish. OHI given.','{"bp":"124/78","pulse":68}','Recall in six months.'),
 -- a staff member treated by a colleague: one VAT-bearing service, one zero-rated
 ('ps-07','pr-11',1,NULL,'Completed','st-doc04','st-ast01','2026-09-01 16:00:00','In-clinic LED whitening, two shades lighter.',NULL,NULL),
-('ps-08','pr-12',1,NULL,'Completed','st-doc04','st-ast01','2026-09-01 16:25:00','Scale and polish at the same visit.',NULL,NULL);
+('ps-08','pr-12',1,NULL,'Completed','st-doc04','st-ast01','2026-09-01 16:25:00','Scale and polish at the same visit.',NULL,NULL),
+-- a THREE-SURFACE filling, so PerSurface billing is exercised at quantity 3
+('ps-09','pr-09',1,NULL,'Completed','st-doc01','st-ast01','2026-09-03 10:30:00','MOD composite on 37. Shade A2.',NULL,NULL);
 
 COMMIT;

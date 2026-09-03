@@ -126,7 +126,13 @@ CREATE TABLE invoice_line (
     CONSTRAINT ck_line_vat_after_discount CHECK (
         vat_amount = CAST(ROUND((line_total - discount_amount) * vat_rate / 100.0) AS INTEGER)),
     CONSTRAINT ck_line_discount_within CHECK (
-        line_total < 0 OR discount_amount <= line_total)
+        line_total < 0 OR discount_amount <= line_total),
+    -- a line must agree with its own arithmetic. Without this, unit_price 100
+    -- at quantity 3 could be billed as anything at all.
+    CONSTRAINT ck_line_total_is_price_times_qty CHECK (
+        line_total = CASE WHEN credits_line_id IS NULL
+                          THEN unit_price * quantity
+                          ELSE -(unit_price * quantity) END)
 );
 
 -- A completed session is billed exactly once.
@@ -294,3 +300,72 @@ JOIN patient_profile pp     ON pp.id = tp.patient_id
 JOIN app_user u             ON u.id = pp.user_id
 JOIN service_category sc    ON sc.id = pr.service_category_id
 LEFT JOIN app_user m        ON m.id = f.determined_by;
+
+
+-- =============================================================================
+-- TRIGGERS ADDED AFTER REVIEW
+--
+-- Three gaps an audit of this module turned up, all of which let wrong data in:
+--   1. invoice.status never moved when money arrived, so a fully settled
+--      invoice still read PartiallyPaid.
+--   2. A line's total was not tied to its own unit_price x quantity.  (fixed
+--      above as ck_line_total_is_price_times_qty)
+--   3. An invoice could name a 10% voucher and then discount any amount at all.
+-- =============================================================================
+
+-- An invoice is assembled as a Draft and then ISSUED. Issuing is the moment the
+-- figures are complete, so it is the moment to check them.
+CREATE TRIGGER trg_invoice_issue_validates BEFORE UPDATE ON invoice
+WHEN OLD.status = 'Draft' AND NEW.status <> 'Draft'
+BEGIN
+    SELECT RAISE(ABORT, 'cannot issue an invoice with no lines')
+    WHERE NOT EXISTS (SELECT 1 FROM invoice_line WHERE invoice_id = NEW.id);
+
+    -- the discount must be what the voucher actually grants
+    SELECT RAISE(ABORT, 'discount does not match the promotion rate')
+    WHERE NEW.promotion_id IS NOT NULL
+      AND NEW.discount_amount <> (
+          SELECT CASE p.discount_type
+                     WHEN 'Percentage'  THEN CAST(ROUND(NEW.subtotal * p.discount_value / 100.0) AS INTEGER)
+                     WHEN 'FixedAmount' THEN MIN(p.discount_value, NEW.subtotal)
+                 END
+          FROM promotion p WHERE p.id = NEW.promotion_id);
+
+    -- and the voucher must actually have been redeemable on the day
+    SELECT RAISE(ABORT, 'promotion is not redeemable on the invoice date')
+    WHERE NEW.promotion_id IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM promotion p WHERE p.id = NEW.promotion_id
+                        AND p.is_active = 1
+                        AND date(NEW.issued_at) BETWEEN p.start_date AND p.end_date);
+
+    -- a discount with no source at all is not allowed either
+    SELECT RAISE(ABORT, 'a discount needs a source: a voucher or an approved proposal')
+    WHERE NEW.discount_amount > 0
+      AND NEW.promotion_id IS NULL AND NEW.discount_proposal_id IS NULL;
+END;
+
+-- Settlement status follows the money, rather than being asserted and going
+-- stale. Recomputed whenever a payment lands or a line changes the total.
+CREATE TRIGGER trg_payment_settles AFTER INSERT ON payment
+BEGIN
+    UPDATE invoice SET status = CASE
+        WHEN status IN ('Draft','Voided') THEN status
+        WHEN (SELECT COALESCE(SUM(CASE WHEN direction='In' THEN amount ELSE -amount END),0)
+              FROM payment WHERE invoice_id = NEW.invoice_id) >= total THEN 'Paid'
+        WHEN (SELECT COALESCE(SUM(CASE WHEN direction='In' THEN amount ELSE -amount END),0)
+              FROM payment WHERE invoice_id = NEW.invoice_id) > 0 THEN 'PartiallyPaid'
+        ELSE status END
+    WHERE id = NEW.invoice_id;
+END;
+
+CREATE TRIGGER trg_line_resettles AFTER INSERT ON invoice_line
+BEGIN
+    UPDATE invoice SET status = CASE
+        WHEN status IN ('Draft','Voided') THEN status
+        WHEN (SELECT COALESCE(SUM(CASE WHEN direction='In' THEN amount ELSE -amount END),0)
+              FROM payment WHERE invoice_id = NEW.invoice_id) >= total THEN 'Paid'
+        WHEN (SELECT COALESCE(SUM(CASE WHEN direction='In' THEN amount ELSE -amount END),0)
+              FROM payment WHERE invoice_id = NEW.invoice_id) > 0 THEN 'PartiallyPaid'
+        ELSE status END
+    WHERE id = NEW.invoice_id;
+END;

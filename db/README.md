@@ -516,10 +516,31 @@ Triggers now fill both as each invoice line is created.
 | `v_vat_check` | Proof the discount was allocated before VAT, per invoice |
 | `v_treatment_failure` | Failed work, the judgment, and what followed |
 
+### Four gaps found by auditing the module after it was built
+
+The tests all passed, but reviewing what they *did not* cover turned up four
+ways wrong data could still get in. All four are now closed and tested.
+
+| Gap | What it allowed | Fix |
+|-----|-----------------|-----|
+| `invoice.status` was never maintained | A fully settled invoice still read `PartiallyPaid` — `inv-01` did exactly that after its refund | `trg_payment_settles` and `trg_line_resettles` recompute it whenever money or a line moves |
+| `line_total` was unconstrained | `unit_price` 100 at quantity 3 was accepted as **999,999** | `ck_line_total_is_price_times_qty`, negated for a credit line |
+| The discount was untied to its voucher | An invoice could name `XASH` (10%) and take **5,000,000 off 6,000,000** | `trg_invoice_issue_validates` checks the discount against the promotion's own rate |
+| `pricing_basis` was never exercised | Every line was quantity 1, so `PerSurface` and `PerTooth` were untested | `inv-05` now bills a three-surface filling at **quantity 3** |
+
+The third fix changed how invoices are built. They are now assembled as a
+**Draft**, given their lines, and then **issued** — which is the moment the
+figures are complete and therefore the moment to check them. Issuing also
+refuses an invoice with no lines, a discount with no source, and an expired
+voucher.
+
 ### Verification, and a constraint bug the tests caught
 
-`integrity_check` ok, `foreign_key_check` zero rows, **17 negative tests** and
-**2 positive controls**.
+`integrity_check` ok, `foreign_key_check` zero rows, **23 negative tests** and
+**3 positive controls**, plus a standing regression over six invariants: line
+discounts summing to the invoice discount, every line agreeing with its own
+arithmetic, VAT always on the net, free rework unbilled, no session billed
+twice, and prices bound only where billing occurred.
 
 One test failed on the first run, and the constraint was genuinely wrong:
 
