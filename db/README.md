@@ -3,7 +3,7 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: modules 1–4 of 9 complete.**
+**Status: modules 1–5 of 9 complete.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
@@ -11,7 +11,7 @@ Built one module at a time, following `Design/build-plan.md`.
 | 2 | Clinic Setup | tooth, chair_type, chair, service_category, material_option, price_list, promotion | ✅ |
 | 3 | Scheduling | doctor_schedule, appointment | ✅ |
 | 4 | Treatment Planning | treatment_plan, procedure_instruction, treatment_procedure, procedure_decision, discount_proposal, special_procedure_proposal | ✅ |
-| 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | — |
+| 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | ✅ |
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | — |
 | 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list | — |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
@@ -362,3 +362,83 @@ rejecting and **3 positive controls** accepted — covering append-only
 enforcement, chain coherence, the transition whitelist, refusals without a
 reason, a crown given an implant's material, and proposals whose review state
 contradicts their reviewer.
+
+
+---
+
+## Module 5 — Clinical Record
+
+6 health records, 18 tooth conditions, 12 `procedure_tooth` rows, 4 media items,
+6 sessions, 3 views, 5 triggers.
+
+### `surface_combination` — validating surfaces exactly
+
+Surfaces are written in canonical order **M · O/I · D · B · L**, so a
+three-surface filling is always `MOD` and never `DOM` — one spelling per set, so
+it can be compared and counted. Validating that in a trigger means walking the
+string checking both *membership* and *order*, which is easy to get subtly wrong.
+
+Instead there is a generated lookup of every canonical subset: 31 per tooth type,
+**62 rows**. Surfaces are valid iff the row exists. That makes five distinct
+errors fall out of one check — a surface the tooth does not have, the wrong
+biting surface for its type, wrong order, a duplicate, and an unknown letter.
+
+### Findings and procedures are many-to-many, both ways
+
+`procedure_tooth.addresses_condition_id` carries it. Because the FK sits on the
+(procedure × tooth) junction, both directions work with no third table:
+
+| Direction | Seed case |
+|-----------|-----------|
+| **One finding, many procedures** | Deep caries on 36 (`tc-07`) needs a **root canal and then a crown**. Both `procedure_tooth` rows point at the same finding |
+| **One procedure, many findings** | A single scaling (`pr-10`) clears calculus on **six teeth** — six rows, each addressing its own tooth's finding |
+
+Two triggers keep it honest: a procedure cannot address another patient's
+finding, nor a finding on a different tooth.
+
+### The odontogram draws three layers, and only two are the record
+
+| Layer | Source | Is it the record? |
+|-------|--------|-------------------|
+| existing | restoration-type conditions, Active | **yes** |
+| finding | pathology conditions, Active | **yes** |
+| planned | `procedure_tooth` on Proposed/Accepted/Scheduled work | **no** — an overlay |
+
+`v_tooth_chart` returns all three with the layer labelled, so the UI can style
+planned work differently without confusing it for a fact about the tooth.
+
+### Corrections are new rows, never deletions
+
+`tc-10` was charted on tooth 34 by mistake — the lesion was on 37. It is marked
+`EnteredInError` and superseded by `tc-08`, **not deleted**. A trigger refuses
+`DELETE` outright. The chart excludes it; the table keeps it, because a clinical
+record has to show what was believed at the time.
+
+### A sequencing note on `billable_amount`
+
+Every seeded session has `billable_amount` **NULL**, and that is correct. The
+design describes it as "the value of this session's work — its share of the
+procedure total", but `treatment_procedure.unit_price` does not bind until the
+procedure is **first invoiced**, which is module 6. A session completing before
+then genuinely has no amount yet.
+
+So the column is nullable and module 6 fills it as invoice lines are created.
+Worth revisiting there: storing a **weight** (session 1 = 60%, session 2 = 40%)
+rather than an amount would separate the clinical decision — how work splits
+across visits — from the money, and would be knowable at session time.
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_tooth_chart` | The odontogram: existing state, findings, and planned work, layered |
+| `v_finding_treatment` | Each finding and every procedure addressing it |
+| `v_session_log` | What happened at each visit, and who did it |
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, **16 negative tests** all
+rejecting and **5 positive controls** accepted — covering all five surface
+failure modes, whole-tooth findings that name surfaces, deletion of a clinical
+finding, cross-patient and cross-tooth finding links, a session opened on work
+the patient has not accepted, and invalid JSON in `vitals`.
