@@ -45,10 +45,10 @@ INSERT INTO appointment
 
 -- a follow-up the receptionist chased — her KPI credit
 ('ap-05','u-pat03','st-doc01','ch-03','2026-09-03 08:30:00',90,'Procedure',   'Confirmed','Phone',    'st-ast01','u-rec01', 'Booked after recall call.',                        'u-rec01','2026-08-28 09:20:00'),
-('ap-06','u-pat04','st-doc04','ch-02','2026-09-02 14:00:00',30,'Followup',    'Scheduled','FrontDesk',NULL,      'u-rec01', 'Six-month recall.',                                'u-rec01','2026-08-30 11:00:00'),
+('ap-06','u-pat04','st-doc04','ch-02','2026-09-02 14:00:00',30,'Followup',    'Completed','FrontDesk',NULL,      'u-rec01', 'Six-month recall. Attended.',                      'u-rec01','2026-08-30 11:00:00'),
 
 -- in the chair right now, so occupancy has something to report
-('ap-07','u-pat02','st-doc01','ch-01','2026-09-01 10:00:00',60,'Procedure',   'InProgress','FrontDesk','st-ast01',NULL,     'Currently being treated.',                         'u-rec01','2026-08-27 15:40:00'),
+('ap-07','u-pat02','st-doc01','ch-01','2026-09-03 10:00:00',60,'Procedure',   'InProgress','FrontDesk','st-ast01',NULL,     'Currently in the chair.',                          'u-rec01','2026-08-27 15:40:00'),
 
 -- cancelled: must RELEASE its slot, so ch-02 is free at that time
 ('ap-08','u-pat03','st-doc04','ch-02','2026-08-28 11:00:00',60,'Procedure',   'Cancelled','FrontDesk',NULL,      NULL,      'Patient cancelled, work commitment.',              'u-rec01','2026-08-21 09:00:00');

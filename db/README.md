@@ -14,6 +14,7 @@ Built one module at a time, following `Design/build-plan.md`.
 | 5 | Clinical Record | health_record, tooth_condition, procedure_tooth, patient_media, procedure_session | ✅ |
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | ✅ |
 | 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list, equipment, equipment_maintenance | ✅ |
+| 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | ✅ |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
 | 9 | Notifications | notification | — |
 
@@ -665,3 +666,158 @@ batch remainders, no expired stock was ever consumed, all consumption sits on
 work that actually started, no batch was born expired, invoice arithmetic holds,
 VAT is always on the net, and every procedure's status equals the head of its
 decision log.
+
+
+---
+
+## Module 8 — Payroll & Commission
+
+Seven tables answering two different questions that happen to settle into the
+same payslip: *what were you paid for your time* and *what did you earn from the
+work you did*.
+
+### Time is priced on the day it was worked, not the day it is paid
+
+`wage_rate` is versioned, never overwritten — a new rate is a new row with an
+`effective_from`, and the old one stays. Pricing a day resolves the greatest
+`effective_from` that is ≤ that day, so a raise applies forward and never
+rewrites history.
+
+The seed makes this concrete. The assistant started on a trainee rate of 45,000
+and was reviewed up to 55,000 on 16 August:
+
+| Date | Hours | Rate that day | Pay |
+|------|-------|---------------|-----|
+| 3–5 Aug | 8.0 each | 45,000 | 360,000 each |
+| 18 Aug onward | 8.0 each | 55,000 | 440,000 each |
+
+`v_attendance_priced` sums August to **3,252,500 over 63.5 hours**, which is
+exactly the `base_pay` on the payslip. Had the rate been read as "current", the
+same August would have come out 635,000 too high. This is the thing that had to
+work: hours worked as an Intern keep their Intern price after promotion.
+
+Only the assistant clocks in — everyone else is `Monthly`, so `hours` on their
+payslip is 0 and `base_pay` is the monthly rate. `v_payslip` handles both
+without a branch in the application.
+
+### Commission follows the work, and only the work
+
+`commission_entry` is the single money row for every kind of earning — a
+completed clinical session, or a receptionist event. Four triggers guard it, and
+they are what the module is really for:
+
+| Trigger | Refuses |
+|---------|---------|
+| `trg_ce_not_own_treatment` | earning on a session whose **patient is you** |
+| `trg_ce_must_have_worked` | crediting anyone who was not the session's performer or assistant; a session that is not `Completed`; free rework |
+| `trg_ce_amount_matches_rule` | an amount that is not what the cited rule grants |
+| `trg_ce_base_is_session_value` | a base that is not the session's own `billable_amount` |
+
+The first is the rule the design has carried since the beginning — *a doctor
+cannot earn commission on their own treatment* — and the seed exercises it for
+real rather than asserting it. Dr Minh is a patient at his own clinic
+(`tp-05`); Dr Quỳnh whitened and scaled his teeth with Đỗ Văn Nam assisting:
+
+| Session | Paid to | Base | Amount |
+|---------|---------|------|--------|
+| ps-07 | Lâm Thị Quỳnh | 3,000,000 | 450,000 |
+| ps-07 | Đỗ Văn Nam | 3,000,000 | 150,000 |
+| ps-08 | Lâm Thị Quỳnh | 500,000 | 75,000 |
+| ps-08 | Đỗ Văn Nam | 500,000 | 25,000 |
+
+Dr Minh earns **nothing** on either — not because the seed omits him, but
+because the insert is refused. The same two rows also show a doctor and an
+assistant paid on one session at their own separate rates, which is the normal
+case.
+
+### Which rule applies, when three could
+
+`commission_rule` is scoped three ways and resolved most-specific-first:
+
+| Precedence | Rule | Scope | Rate |
+|---|------|-------|------|
+| 1 | `cr-04` | Dr Minh, on implants (his contract) | 22% |
+| 2 | `cr-03` | anyone, on implants | 20% |
+| 3 | `cr-01` | any doctor, any service | 15% |
+
+The contract rate beats the category rate beats the role rate. Rules are
+versioned by `effective_from` exactly as wages are, and an entry citing a rule
+that was **not yet in force** when it was earned is refused.
+
+Scope is mutually exclusive by CHECK: clinical roles are scoped by service
+category, the receptionist by `event_type`, never both.
+
+### The receptionist earns on events, not on money
+
+`receptionist_performance_log` records *what happened* — this receptionist
+brought in this patient — and stays separate from the payment. The seed carries
+two `NewPatientRegistered` and one `SuccessfulFollowUp`, each paying a
+`FixedAmount`, which is why the receptionist's dashboard rows show a
+`total_base` of 0: there is no invoice underneath them, and there should not be.
+Keeping the event log apart from the money is what lets the manager change the
+per-event bounty later without rewriting history.
+
+### The manager's chargeback, end to end
+
+`payroll_adjustment` is where a manager charges a loss back to the staff member
+who caused it. The failed extraction from module 6 (`tf-01`, retained root
+fragment) produced a refund; the debit follows:
+
+    Trần Văn Minh   DEBIT   −1,500,000   "Retained root fragment at extraction
+                                          of #46 (tf-01). Clinic refunded…"
+
+It sits in `v_unsettled` alongside a 500,000 credit to the assistant for weekend
+cover — both waiting for the September run, both requiring a written reason.
+`ck_adj_reason` refuses a blank one, because an unexplained deduction from
+someone's pay is exactly the thing an audit will ask about.
+
+Note that the *free rework* on the same failure earns no commission either —
+`trg_ce_must_have_worked` checks `remedy_for_failure_id`. The clinic absorbs the
+cost once, not twice.
+
+### Nothing settled can be edited
+
+Three triggers close the books: an **approved** `payroll_record` cannot be
+changed, and a **settled** `commission_entry` or `payroll_adjustment` cannot be
+either. Corrections go in as a new adjustment in the next period, the same
+append-only discipline used by `procedure_decision` and `invoice_line`.
+
+`ck_payroll_math` holds `net_pay = base_pay + commission_total + total_credits −
+total_debits` at the row level, and `(status = 'Pending') = (payroll_record_id
+IS NULL)` keeps an entry from claiming to be both unsettled and already paid.
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_current_wage` | What each staff member is paid *now* |
+| `v_attendance_priced` | Each shift at the rate in force that day |
+| `v_commission_dashboard` | **Manager only** — earnings per staff member, by settlement status |
+| `v_commission_detail` | Line by line: which session, which rule, how much |
+| `v_payslip` | The August run: hours, base, commission, credits, debits, net |
+| `v_unsettled` | What the next run owes and claws back |
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, **14 negative tests** all
+rejecting: earning on your own treatment (both sessions), crediting someone who
+did not work the session, paying the same person twice for one session, earning
+on a session that is not `Completed`, an amount inflated past its rule, a base
+that is not the session's value, a rule not yet in force, editing an approved
+payroll record or a settled entry, a `net_pay` that does not follow from its
+parts, attendance minutes disagreeing with the clock, clocking out before
+clocking in, and a blank adjustment reason.
+
+Seven August payslips reconcile, and the standing regression now spans all eight
+modules — payslip arithmetic, commission equals base × rule rate, nobody paid on
+their own treatment, commission only to the worker, free rework earns nothing,
+settled entries always carry a payroll record, plus the module 6 and 7 checks.
+
+### A prerequisite this module exposed in module 6
+
+Commission is computed from `procedure_session.billable_amount`, and an
+**Upfront** invoice bills the *procedure*, not the session — so `ps-04`'s
+sessions had no value and could never have earned anything. Fixed at the source:
+`trg_line_binds_procedure_price` now spreads the procedure's charge across its
+planned sessions when the line is written. Two stale appointment statuses
+(`ap-06`, `ap-07`) were corrected at the same time.

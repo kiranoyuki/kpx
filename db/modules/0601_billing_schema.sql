@@ -222,10 +222,18 @@ BEGIN
 END;
 
 CREATE TRIGGER trg_line_binds_procedure_price AFTER INSERT ON invoice_line
-WHEN NEW.procedure_id IS NOT NULL
+WHEN NEW.procedure_id IS NOT NULL AND NEW.credits_line_id IS NULL
 BEGIN
     UPDATE treatment_procedure SET unit_price = NEW.unit_price
     WHERE id = NEW.procedure_id AND unit_price IS NULL;
+
+    -- Upfront mode bills the PROCEDURE, so its sessions would otherwise never
+    -- learn what their work was worth — and commission is computed from exactly
+    -- that. Spread the procedure's charge across its planned sessions.
+    UPDATE procedure_session
+       SET billable_amount = NEW.line_total /
+           (SELECT planned_sessions FROM treatment_procedure WHERE id = NEW.procedure_id)
+     WHERE procedure_id = NEW.procedure_id AND billable_amount IS NULL;
 END;
 
 -- A refund only follows a fault the clinic actually accepted.
