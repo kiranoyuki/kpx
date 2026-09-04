@@ -20,6 +20,36 @@ work. Debugging both at once is what this ordering avoids.
 Layout: `src/api/` and `src/ui/` alongside the existing `db/` and `Design/`. This supersedes
 `backend-skeleton.md`, which placed the API at `api/`.
 
+## Repo layout and the shared contract
+
+**Two independent packages. There is no root `package.json`.**
+
+```
+src/api/   package.json  package-lock.json  tsconfig.json  node_modules/
+src/ui/    package.json  package-lock.json  tsconfig.json  node_modules/
+```
+
+Not an npm workspace, deliberately. A workspace means one root lockfile, which two people —
+or two agents — working in parallel rewrite simultaneously, producing a conflict in the file
+that is worst to merge. The cost is some duplicated devDependency versions; the benefit is
+that the two packages share no mutable file. When shared types are genuinely needed, add a
+third package as a deliberate decision.
+
+**Fixed now so nothing renegotiates it later:**
+
+| | |
+|---|---|
+| Node | 22 LTS |
+| API port | 3000 |
+| UI dev port | 5173 |
+| Vite proxy | `/api` → `http://localhost:3000`, no rewrite |
+| Route prefix | **every** API route lives under `/api` |
+| Health | `GET /api/health` → `{ status, foreignKeys, journalMode }` |
+
+**Directory ownership.** `src/api/**` and `src/ui/**` are owned separately and never edited
+together in one PR. `Design/**` and `db/**` are owned by neither and stay frozen during
+implementation work.
+
 ---
 
 # Phase A — Foundation
@@ -28,16 +58,16 @@ No business logic in this phase. Its only job is that every later step is copy-t
 
 ## Step 1 — Backend skeleton at `src/api/`
 
-- [ ] `package.json`, `tsconfig.json`, `.env.example`, `eslint.config.js`
+- [ ] `package.json`, `tsconfig.json`, `.env.example`, `eslint.config.js` — all inside `src/api/`, none at the repo root
 - [ ] Fastify, TypeScript, Vitest, tsx installed
 - [ ] `src/app.ts` exports `buildApp()` returning a `FastifyInstance` — **never listens**, so tests can import it
-- [ ] `src/main.ts` boots, listens, handles graceful shutdown
+- [ ] `src/main.ts` boots, listens on 3000, handles graceful shutdown
 - [ ] `src/config.ts` parses and validates env once, typed
-- [ ] `GET /health` → `{ status: "ok" }`
+- [ ] `GET /api/health` → `{ status: "ok" }`
 - [ ] Scripts: `dev`, `build`, `typecheck`, `lint`, `test`
 
-**Verify:** `npm run dev` starts · `curl localhost:3000/health` → 200 · `npm run typecheck`
-and `npm test` both pass.
+**Verify:** `npm run dev` starts · `curl localhost:3000/api/health` → 200 · `npm run
+typecheck` and `npm test` both pass.
 
 ## Step 2 — UI skeleton at `src/ui/`
 
@@ -55,9 +85,9 @@ and `npm test` both pass.
 - [ ] `db/connection.ts` — one long-lived `better-sqlite3` handle to `db/kpx.db`
 - [ ] Pragmas set once at open: `foreign_keys = ON`, `journal_mode = WAL`, `busy_timeout = 5000`, `synchronous = NORMAL`
 - [ ] `kysely-codegen` script → `db/schema.d.ts`, committed
-- [ ] `/health` extended to report `foreignKeys` and `journalMode`
+- [ ] `/api/health` extended to report `foreignKeys` and `journalMode`
 
-**Verify:** `/health` → `{ status:"ok", foreignKeys:true, journalMode:"wal" }`. Foreign keys
+**Verify:** `/api/health` → `{ status:"ok", foreignKeys:true, journalMode:"wal" }`. Foreign keys
 reporting `false` here means a third of enforcement is silently off.
 
 ## Step 4 — Transactions
@@ -187,11 +217,11 @@ gives step 15 a genuine rollback test.
 
 **16a — write**
 - [ ] `register-patient.http.ts` — zod request/response schemas, mapping to `RegisterPatientInput`
-- [ ] `people.routes.ts` registers `POST /patients`, unpacks deps, calls the use case
+- [ ] `people.routes.ts` registers `POST /api/patients`, unpacks deps, calls the use case
 - [ ] `register-patient.ts` imports no zod and no Fastify type
 
 **16b — read**
-- [ ] `get-patients.ts` + `get-patients.http.ts` + `GET /patients?q=` for the list screen
+- [ ] `get-patients.ts` + `get-patients.http.ts` + `GET /api/patients?q=` for the list screen
 
 **Verify:** `fastify.inject()` tests for 201, 400 on a bad body, 409 on a duplicate
 `national_id`, and a list response carrying ids.
@@ -242,7 +272,7 @@ can be. A second writer process would break it silently.
 
 - [ ] `modules/scheduling/get-day-sheet.ts`
 - [ ] Returns **ids alongside labels** — `v_day_sheet` omits `appointment_id`, so the view cannot back this endpoint
-- [ ] `GET /appointments?date=` with a zod response schema
+- [ ] `GET /api/appointments?date=` with a zod response schema
 
 **Verify:** rows each carry `appointmentId`.
 
@@ -251,7 +281,7 @@ can be. A second writer process would break it silently.
 - [ ] `modules/scheduling/book-appointment.ts` — one sync function inside `write()`
 - [ ] `modules/scheduling/domain/chair-overlap.ts` — the pure overlap predicate
 - [ ] Rule 2 → `CHAIR_DOUBLE_BOOKED`
-- [ ] `POST /appointments`
+- [ ] `POST /api/appointments`
 
 **Verify:** book into a free chair → 201. Book an overlapping time in the same chair →
 **409 `CHAIR_DOUBLE_BOOKED`**. The overlap predicate is unit-tested exhaustively with no
