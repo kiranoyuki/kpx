@@ -15,6 +15,7 @@ Built one module at a time, following `Design/build-plan.md`.
 | 6 | Billing | invoice, invoice_line, payment, treatment_failure | ✅ |
 | 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list, equipment, equipment_maintenance | ✅ |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | ✅ |
+| 9 | Notifications | notification | ✅ |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
 | 9 | Notifications | notification | — |
 
@@ -927,3 +928,122 @@ sessions had no value and could never have earned anything. Fixed at the source:
 `trg_line_binds_procedure_price` now spreads the procedure's charge across its
 planned sessions when the line is written. Two stale appointment statuses
 (`ap-06`, `ap-07`) were corrected at the same time.
+
+---
+
+## Module 9 — Notifications
+
+One table. It records **what should be sent, to whom, and about what** —
+delivery is out of scope by decision, and stays that way: getting a message onto
+a phone is a separate system (internal chat, SMS, Zalo) that will bring its own
+channel, delivery status and retry policy. Those columns belong with that
+adapter.
+
+What is left after removing delivery is not trivial, though. Three things had to
+be right.
+
+### The pointer is polymorphic, so it is enforced by trigger
+
+A notification is almost always *about* something — an appointment, an invoice,
+a failed treatment, a payslip. That reference cannot be a foreign key, because
+it points at eight different tables. Left unchecked, a notification could claim
+to be about `inv-99` and the UI would render an empty page with no sign anything
+was wrong.
+
+`related_entity_type` is restricted to eight names, both halves of the pointer
+are required together, and `trg_notif_target_exists` checks the row is really
+there — one explicit clause per type, since SQLite cannot resolve a table name
+at runtime. `v_notification_context` then resolves each link to a human label,
+and because every link is guaranteed to go somewhere, that label is never blank:
+
+| | |
+|---|---|
+| `Appointment` `ap-03` | appointment 2026-08-20 10:00:00 (NoShow) |
+| `Invoice` `inv-05` | invoice PartiallyPaid, total 2160000 |
+| `InventoryItem` `it-comp-a2` | Composite A2, 28 syringe on hand |
+| `PayrollRecord` `pay-2608-ast01` | payslip 2026-08-01 to 2026-08-31 |
+
+### A broadcast is delivered by profile, never by role
+
+`v_inbox` is the query the inbox is built from: your own messages, plus every
+broadcast that reaches you. The first version joined `n.recipient_role = u.role`
+— which is precisely the mistake module 1's own header warns against, *portal
+access is granted by profile, never by role* — and it broke in both directions:
+
+- a **departed** doctor and one **on leave** both received the staff
+  announcement about implant contract rates, though neither can open the staff
+  portal at all;
+- the clinic-closure notice to Patients **missed the two doctors who are
+  themselves patients here**, and instead reached two provisional people who
+  booked online, never arrived, and have no patient record.
+
+Now staff broadcasts go to staff whose `employment_status` is `Intern` or
+`Active`, and patient broadcasts to everyone holding a `patient_profile`,
+whatever their role says. Ngô Bảo Châu — departed staff, still a patient here —
+receives the clinic notice and not the staff one, which is the *"a staff member
+who quits can still be a patient"* rule from module 1 finally visible in a
+query.
+
+### A patient may only be told about their own care
+
+Nothing enforced this, and the seed proved within minutes why it mattered.
+`v_pending_chases` lists the no-show reschedules and outstanding balances that
+have no notification yet — and it named **different people** than the
+notifications had been addressed to:
+
+| Notification | Sent to | Actually concerns |
+|---|---|---|
+| no-show reschedule, `ap-03` | Bùi Thị Hạnh | **Ngô Quang Huy** |
+| balance outstanding, `inv-05` | Lý Văn Hùng | **Phạm Thị Ngọc** |
+
+Two live defects, each one handing a patient another patient's information.
+`trg_notif_patient_sees_own` now refuses them. Staff are exempt — being told
+about other people's appointments is the job — which is why the receptionist can
+still page a doctor about a waiting patient, and why Dr Minh, who is both, is
+told about his own plan without trouble.
+
+That trigger is `BEFORE INSERT` only, and for once by design rather than
+omission: recipient and target are both frozen by
+`trg_notif_content_immutable`, so no later UPDATE can break the rule.
+
+### Smaller rules worth stating
+
+- **You page a person, never a role** — a page everyone receives is one nobody
+  answers. An announcement is the opposite, and must be a broadcast.
+- **A broadcast cannot be marked read.** There is no single reader to read it.
+  Per-recipient read state needs a row per recipient and arrives with the
+  delivery system; until then a broadcast stays unread by construction.
+- **Read state uses a `CASE`, not an equality** — the shape that hid a bug in
+  module 6 and again in module 8. Written as an equality, a row with *both*
+  `is_read = 0` and a `read_at` would pass.
+- **Marking read goes one way**; a sent message's content never changes at all.
+- **Nobody who has left is paged to the floor**, though they may still hear from
+  the clinic as a patient.
+
+### Views
+
+| View | Answers |
+|------|---------|
+| `v_inbox` | What each person actually sees — direct messages plus broadcasts that reach them |
+| `v_unread_count` | The badge number, per person |
+| `v_notification_context` | Each polymorphic link resolved to something readable |
+| `v_pending_chases` | No-shows and outstanding balances with no notification raised yet |
+
+### Verification
+
+`integrity_check` ok, `foreign_key_check` zero rows, **22 negative tests** all
+rejecting and **6 positive controls** accepted — covering a dangling pointer, an
+appointment id in the invoice slot, half a pointer either way, a message to
+nobody or to both a person and a role, a broadcast page, a direct announcement,
+self-notification, every incoherent read state, un-reading, rewriting or
+redirecting a sent message, and paging someone who has left.
+
+`v_pending_chases` is empty in the seed, which is the correct answer — both
+chases were raised — so it is proven by withdrawing the two notifications inside
+a rolled-back transaction and watching the no-show and the outstanding balance
+reappear.
+
+The standing regression now spans all nine modules: every notification link
+resolves, no patient sees another's care, no broadcast reaches a leaver, read
+state is coherent, plus the payroll, billing, inventory and clinical checks from
+modules 5 through 8.
