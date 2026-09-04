@@ -122,4 +122,22 @@ INSERT INTO special_procedure_proposal (id, treatment_plan_id, proposed_by, serv
 INSERT INTO discount_proposal (id, treatment_plan_id, proposed_by, discount_type, discount_value, reason, status, reviewed_by, reviewed_at, review_note) VALUES
 ('dp-01','tp-03','u-doc01','Percentage',10,'Long-standing patient, third course of treatment this year. Requesting a goodwill discount on the crown.','Approved','u-mgr01','2026-08-29 08:30:00','Approved at 10%.');
 
+
+-- ----------------------------------------------------------- derived values --
+-- trg_decision_applies used to do this on every decision insert. The rule now
+-- belongs to the API: recording a decision and moving the procedure's status
+-- are one command. Written explicitly here so the seed shows what that command
+-- must do -- treatment_procedure.status is a CACHE of the decision log's head
+-- and is never set independently of it.
+UPDATE treatment_procedure SET
+    status = (SELECT d.to_status FROM procedure_decision d
+               WHERE d.procedure_id = treatment_procedure.id
+               ORDER BY d.decided_at DESC, d.id DESC LIMIT 1),
+    -- ck_proc_completed_has_date pairs these two: the API must set both together
+    completed_date = (SELECT CASE WHEN d.to_status = 'Completed' THEN date(d.decided_at) END
+                        FROM procedure_decision d
+                       WHERE d.procedure_id = treatment_procedure.id
+                       ORDER BY d.decided_at DESC, d.id DESC LIMIT 1)
+WHERE EXISTS (SELECT 1 FROM procedure_decision WHERE procedure_id = treatment_procedure.id);
+
 COMMIT;

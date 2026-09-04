@@ -3,7 +3,7 @@
 Built one module at a time, following `Design/build-plan.md`.
 `Design/core-entities/entities.md` is the source of truth for the model.
 
-**Status: modules 1–7 of 9 complete.**
+**Status: all 9 modules complete. Triggers removed — see the banner below.**
 
 | # | Module | Entities | Built |
 |---|--------|----------|-------|
@@ -16,8 +16,46 @@ Built one module at a time, following `Design/build-plan.md`.
 | 7 | Inventory | vendor, inventory_item, inventory_batch, inventory_log, procedure_supply_list, equipment, equipment_maintenance | ✅ |
 | 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | ✅ |
 | 9 | Notifications | notification | ✅ |
-| 8 | Payroll & Commission | wage_rate, attendance_log, payroll_record, commission_rule, receptionist_performance_log, commission_entry, payroll_adjustment | — |
-| 9 | Notifications | notification | — |
+
+---
+
+## ⚠️ The 56 triggers were removed — read this before the module notes
+
+**Business logic now lives in the API, by decision** (`Design/api-plan.md`). The
+database keeps only its **declarative** enforcement:
+
+| | count | |
+|---|---|---|
+| CHECK constraints | 176 | ✅ still enforced |
+| FOREIGN KEY references | 108 | ✅ still enforced (needs `PRAGMA foreign_keys = ON` per connection) |
+| UNIQUE constraints & indexes | 34 | ✅ still enforced |
+| **triggers** | **56** | ❌ **removed** — the API owns these rules now |
+
+**The module sections below still describe every removed rule, and that is
+deliberate.** They explain *why* each rule exists, which is exactly what the API
+now has to implement. Read them as **specification**, not as a description of
+what the database currently enforces. `Design/rule-catalogue.md` is the same
+material in one flat list — 87 rules, each with the message the user should see
+and what the rule has to look at.
+
+Two consequences worth knowing before reading further:
+
+- **Anywhere the notes say "a trigger refuses…", nothing refuses it today.**
+  Until the corresponding API command exists, bad data can be written.
+- **The seeds now compute the derived values themselves**, in explicit
+  `-- derived values --` sections at the end of modules 4, 6 and 7. Those blocks
+  are a working example of what the `addLine`, `recordPayment`, `recordDecision`,
+  `consume` and `receiveStock` commands must do. The seeds produce data
+  **byte-identical** to the trigger-built version — verified table by table
+  against commit `8d9ec14`.
+
+The original trigger bodies are in git:
+
+```bash
+git show 8d9ec14:db/modules/0801_payroll_schema.sql
+```
+
+---
 
 ## Build
 

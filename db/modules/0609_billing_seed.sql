@@ -123,4 +123,82 @@ INSERT INTO procedure_decision (id, procedure_id, from_status, to_status, decide
 INSERT INTO procedure_tooth (id, procedure_id, tooth_code, addresses_condition_id, note) VALUES
 ('pt-13','pr-13','46','tc-02','Retained fragment from the original extraction.');
 
+
+-- ----------------------------------------------------------- derived values --
+-- Six triggers used to maintain these. All six are now the API's job, and each
+-- belongs to a specific command:
+--
+--   addLine        -> bind the procedure's price, give the work a value,
+--                     and re-total the invoice
+--   recordPayment  -> move the invoice's status
+--   recordDecision -> move the procedure's status (module 4 does the same)
+--
+-- Written out here so the seed demonstrates exactly what those commands must do.
+
+-- 1. A line bills EITHER one session (pay-as-you-go) or a whole procedure
+--    (Upfront). Both paths bind the procedure's price the first time it is
+--    billed -- a price is fixed when charged, never when planned.
+UPDATE treatment_procedure SET unit_price = (
+    SELECT l.unit_price FROM invoice_line l
+     WHERE l.credits_line_id IS NULL
+       AND (l.procedure_id = treatment_procedure.id
+         OR l.session_id IN (SELECT id FROM procedure_session
+                              WHERE procedure_id = treatment_procedure.id))
+     ORDER BY l.id LIMIT 1)
+WHERE unit_price IS NULL;
+
+-- 2a. A session-linked line gives that session its value directly.
+UPDATE procedure_session SET billable_amount = (
+    SELECT l.line_total FROM invoice_line l
+     WHERE l.session_id = procedure_session.id AND l.credits_line_id IS NULL
+     ORDER BY l.id LIMIT 1)
+WHERE billable_amount IS NULL
+  AND EXISTS (SELECT 1 FROM invoice_line
+               WHERE session_id = procedure_session.id AND credits_line_id IS NULL);
+
+-- 2b. Upfront billing charges the PROCEDURE, so its sessions would otherwise
+--     never learn what their work was worth -- and commission is computed from
+--     exactly that. Spread the charge across the planned sessions.
+UPDATE procedure_session SET billable_amount = (
+    SELECT CAST(l.line_total / pr.planned_sessions AS INTEGER)
+      FROM invoice_line l JOIN treatment_procedure pr ON pr.id = l.procedure_id
+     WHERE l.procedure_id = procedure_session.procedure_id AND l.credits_line_id IS NULL
+     ORDER BY l.id LIMIT 1)
+WHERE billable_amount IS NULL
+  AND EXISTS (SELECT 1 FROM invoice_line
+               WHERE procedure_id = procedure_session.procedure_id AND credits_line_id IS NULL);
+
+-- 3. Invoice totals are the sum of the lines. These stay STORED rather than
+--    becoming a view: a Vietnamese legal invoice records what was printed and
+--    issued, not a recomputation made later.
+UPDATE invoice SET
+    subtotal        = COALESCE((SELECT SUM(line_total)      FROM invoice_line WHERE invoice_id = invoice.id),0),
+    discount_amount = COALESCE((SELECT SUM(discount_amount) FROM invoice_line WHERE invoice_id = invoice.id),0),
+    vat_total       = COALESCE((SELECT SUM(vat_amount)      FROM invoice_line WHERE invoice_id = invoice.id),0),
+    total           = COALESCE((SELECT SUM(line_total - discount_amount + vat_amount)
+                                  FROM invoice_line WHERE invoice_id = invoice.id),0);
+
+-- 4. Status follows the money received. Refunds are direction 'Out' and count
+--    against the total, which is why a refunded invoice does not stay Paid.
+--    Draft and Voided are terminal states the payments cannot move.
+UPDATE invoice SET status = CASE
+    WHEN status IN ('Draft','Voided') THEN status
+    WHEN (SELECT COALESCE(SUM(CASE WHEN direction='In' THEN amount ELSE -amount END),0)
+            FROM payment WHERE invoice_id = invoice.id) >= total THEN 'Paid'
+    WHEN (SELECT COALESCE(SUM(CASE WHEN direction='In' THEN amount ELSE -amount END),0)
+            FROM payment WHERE invoice_id = invoice.id) > 0 THEN 'PartiallyPaid'
+    ELSE status END;
+
+-- 5. And the decision log head again, for the decisions this module records.
+UPDATE treatment_procedure SET
+    status = (SELECT d.to_status FROM procedure_decision d
+               WHERE d.procedure_id = treatment_procedure.id
+               ORDER BY d.decided_at DESC, d.id DESC LIMIT 1),
+    -- ck_proc_completed_has_date pairs these two: the API must set both together
+    completed_date = (SELECT CASE WHEN d.to_status = 'Completed' THEN date(d.decided_at) END
+                        FROM procedure_decision d
+                       WHERE d.procedure_id = treatment_procedure.id
+                       ORDER BY d.decided_at DESC, d.id DESC LIMIT 1)
+WHERE EXISTS (SELECT 1 FROM procedure_decision WHERE procedure_id = treatment_procedure.id);
+
 COMMIT;

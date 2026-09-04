@@ -119,4 +119,22 @@ INSERT INTO inventory_log (id, inventory_item_id, batch_id, change_type, quantit
 ('lg-19','it-fixture','b-fix','Consumed',-3,1,'u-ast01','2026-08-30 09:00:00','Three fixtures used on other cases.'),
 ('lg-20','it-zir',    'b-zir','Consumed',-3,0,'u-ast01','2026-08-31 09:00:00','All three discs milled.');
 
+
+-- ----------------------------------------------------------- derived values --
+-- trg_log_applies used to move stock on every log row. Now the `consume` and
+-- `receiveStock` commands own it: writing a log row and moving the quantities
+-- are one transaction, never two.
+--
+-- These two columns are the strongest candidates for becoming VIEWS instead --
+-- a sum over inventory_log needs no stored state at all, and then nothing can
+-- drift. Kept as columns for now; see Design/api-plan.md.
+UPDATE inventory_batch SET quantity_remaining =
+    COALESCE((SELECT SUM(quantity_delta) FROM inventory_log WHERE batch_id = inventory_batch.id),0);
+
+UPDATE inventory_item SET
+    quantity_on_hand  = COALESCE((SELECT SUM(quantity_remaining) FROM inventory_batch
+                                   WHERE inventory_item_id = inventory_item.id),0),
+    last_restocked_at = (SELECT MAX(logged_at) FROM inventory_log
+                          WHERE inventory_item_id = inventory_item.id AND change_type = 'Restocked');
+
 COMMIT;
