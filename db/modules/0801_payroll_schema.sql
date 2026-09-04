@@ -55,7 +55,11 @@ CREATE TABLE payroll_record (
 
     UNIQUE (staff_id, period_start, period_end),
     CONSTRAINT ck_pay_period CHECK (period_end >= period_start),
-    CONSTRAINT ck_pay_approved CHECK ((status = 'Draft') = (approved_by IS NULL AND approved_at IS NULL)),
+    -- Written as an equality this passed a Paid record that had an approved_at
+    -- but no approver: both sides were simply false. A CASE says what is meant.
+    CONSTRAINT ck_pay_approved CHECK (
+        CASE status WHEN 'Draft' THEN approved_by IS NULL     AND approved_at IS NULL
+                    ELSE              approved_by IS NOT NULL AND approved_at IS NOT NULL END),
     CONSTRAINT ck_pay_paid     CHECK ((status = 'Paid') = (paid_at IS NOT NULL)),
     CONSTRAINT ck_pay_net      CHECK (net_pay = base_pay + commission_total + total_credits - total_debits)
 );
@@ -73,7 +77,10 @@ CREATE TABLE attendance_log (
 
     UNIQUE (staff_id, date, clock_in),
     CONSTRAINT ck_att_closed_together CHECK ((clock_out IS NULL) = (total_minutes IS NULL)),
-    CONSTRAINT ck_att_out_after_in    CHECK (clock_out IS NULL OR clock_out > clock_in)
+    CONSTRAINT ck_att_out_after_in    CHECK (clock_out IS NULL OR clock_out > clock_in),
+    -- `date` is what the wage lookup joins on, so a date that disagrees with the
+    -- clock would price the shift at some other day's rate.
+    CONSTRAINT ck_att_date_is_clock_in CHECK (date = date(clock_in))
 );
 
 
@@ -109,10 +116,25 @@ CREATE TABLE receptionist_performance_log (
     receptionist_id TEXT NOT NULL REFERENCES staff_profile(id) ON DELETE CASCADE,
     event_type      TEXT NOT NULL CHECK (event_type IN ('NewPatientRegistered','SuccessfulFollowUp')),
     patient_id      TEXT NOT NULL REFERENCES patient_profile(id) ON DELETE CASCADE,
-    appointment_id  TEXT REFERENCES appointment(id) ON DELETE SET NULL,
+    -- RESTRICT, not SET NULL: an appointment that paid a bounty cannot be
+    -- deleted out from under it.
+    appointment_id  TEXT REFERENCES appointment(id) ON DELETE RESTRICT,
     occurred_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE (receptionist_id, event_type, patient_id, appointment_id)
+
+    -- A follow-up IS an appointment; without one there is nothing to have
+    -- succeeded at, and nothing to make the event unique.
+    CONSTRAINT ck_rpl_followup_has_appt CHECK (event_type <> 'SuccessfulFollowUp' OR appointment_id IS NOT NULL)
 );
+
+-- The old UNIQUE spanned appointment_id, and SQLite treats NULLs as distinct —
+-- so the same registration logged twice with no appointment slipped through and
+-- was paid twice. The uniqueness is different per event type anyway:
+--   a patient is registered new exactly ONCE, by whoever did it;
+--   a follow-up is unique to the APPOINTMENT it brought the patient back for.
+CREATE UNIQUE INDEX uq_rpl_new_patient ON receptionist_performance_log(patient_id)
+    WHERE event_type = 'NewPatientRegistered';
+CREATE UNIQUE INDEX uq_rpl_follow_up   ON receptionist_performance_log(appointment_id)
+    WHERE event_type = 'SuccessfulFollowUp';
 
 
 -- The unified earned-commission record: one shape for every role.
@@ -162,7 +184,8 @@ CREATE TABLE payroll_adjustment (
 
 CREATE INDEX idx_wage_lookup      ON wage_rate(staff_id, effective_from DESC);
 CREATE INDEX idx_att_staff_date   ON attendance_log(staff_id, date);
-CREATE INDEX idx_att_open         ON attendance_log(staff_id) WHERE clock_out IS NULL;
+-- At most one shift open at a time: you cannot clock in while already in.
+CREATE UNIQUE INDEX idx_att_open  ON attendance_log(staff_id) WHERE clock_out IS NULL;
 CREATE INDEX idx_att_payroll      ON attendance_log(payroll_record_id);
 CREATE INDEX idx_rule_lookup      ON commission_rule(role, effective_from DESC);
 CREATE INDEX idx_rule_staff       ON commission_rule(staff_id);
@@ -236,12 +259,70 @@ BEGIN
     WHERE (SELECT effective_from FROM commission_rule WHERE id = NEW.commission_rule_id) > date(NEW.earned_at);
 END;
 
+-- The precedence in the comment above commission_rule was, until this was
+-- written, only a comment: nothing stopped an entry citing ANY rule. An
+-- assistant could be paid on the doctor's 15%, one doctor could bill another's
+-- personal contract rate, and a filling could be paid at the implant rate.
+-- Resolution is now enforced at the point it matters, so the rule an entry
+-- cites is the rule that applies to that person and that work.
+CREATE TRIGGER trg_ce_cites_the_applicable_rule BEFORE INSERT ON commission_entry
+BEGIN
+    SELECT RAISE(ABORT, 'that is not the rule that applies to this staff member and this work')
+    WHERE NEW.commission_rule_id <> (
+        SELECT r.id FROM commission_rule r
+         WHERE r.role = (SELECT u.role FROM staff_profile sp JOIN app_user u ON u.id = sp.user_id
+                          WHERE sp.id = NEW.staff_id)
+           AND r.effective_from <= date(NEW.earned_at)
+           -- a personal contract rate belongs to its own holder
+           AND (r.staff_id IS NULL OR r.staff_id = NEW.staff_id)
+           -- a category rate applies only to that category of work
+           AND (NEW.session_id IS NULL OR r.service_category_id IS NULL
+                OR r.service_category_id = (SELECT pr.service_category_id
+                                              FROM procedure_session s
+                                              JOIN treatment_procedure pr ON pr.id = s.procedure_id
+                                             WHERE s.id = NEW.session_id))
+           -- an event bounty applies only to that event
+           AND (NEW.performance_log_id IS NULL
+                OR r.event_type = (SELECT event_type FROM receptionist_performance_log
+                                    WHERE id = NEW.performance_log_id))
+           AND (NEW.session_id IS NULL OR r.event_type IS NULL)
+         ORDER BY (r.staff_id IS NOT NULL)            DESC,   -- 1. contract rate
+                  (r.service_category_id IS NOT NULL) DESC,   -- 2. category rate
+                  r.effective_from                    DESC    -- 3. role catch-all
+         LIMIT 1);
+END;
+
 -- The base must be the session's own value, not an invented figure.
 CREATE TRIGGER trg_ce_base_is_session_value BEFORE INSERT ON commission_entry
 WHEN NEW.session_id IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'commission_base must equal the session''s billable_amount')
     WHERE NEW.commission_base <> COALESCE((SELECT billable_amount FROM procedure_session WHERE id = NEW.session_id), -1);
+END;
+
+-- Settlement binds a row to a payroll record. Nothing checked that the record
+-- belonged to the same person, so one staff member's commission could be paid
+-- into another's payslip; nor that the work fell inside the period being paid.
+CREATE TRIGGER trg_ce_settles_into_own_period BEFORE INSERT ON commission_entry
+WHEN NEW.payroll_record_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'that payroll record belongs to a different staff member')
+    WHERE (SELECT staff_id FROM payroll_record WHERE id = NEW.payroll_record_id) <> NEW.staff_id;
+
+    SELECT RAISE(ABORT, 'that commission was not earned inside this pay period')
+    WHERE date(NEW.earned_at) NOT BETWEEN (SELECT period_start FROM payroll_record WHERE id = NEW.payroll_record_id)
+                                      AND (SELECT period_end   FROM payroll_record WHERE id = NEW.payroll_record_id);
+END;
+
+CREATE TRIGGER trg_adj_settles_into_own_record BEFORE INSERT ON payroll_adjustment
+WHEN NEW.payroll_record_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'that payroll record belongs to a different staff member')
+    WHERE (SELECT staff_id FROM payroll_record WHERE id = NEW.payroll_record_id) <> NEW.staff_id;
+
+    -- an adjustment may wait for a later run, but cannot be paid by an earlier one
+    SELECT RAISE(ABORT, 'that adjustment was raised after this pay period closed')
+    WHERE date(NEW.created_at) > (SELECT period_end FROM payroll_record WHERE id = NEW.payroll_record_id);
 END;
 
 -- Attendance: minutes must match the clock.
@@ -251,6 +332,53 @@ BEGIN
     SELECT RAISE(ABORT, 'total_minutes does not match clock_in and clock_out')
     WHERE NEW.total_minutes
        <> CAST(ROUND((julianday(NEW.clock_out) - julianday(NEW.clock_in)) * 1440) AS INTEGER);
+END;
+
+-- The same check on UPDATE. Without it, total_minutes could simply be edited
+-- after the fact, which is the whole quantity the wage is multiplied by.
+CREATE TRIGGER trg_att_minutes_match_upd BEFORE UPDATE ON attendance_log
+WHEN NEW.clock_out IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'total_minutes does not match clock_in and clock_out')
+    WHERE NEW.total_minutes
+       <> CAST(ROUND((julianday(NEW.clock_out) - julianday(NEW.clock_in)) * 1440) AS INTEGER);
+END;
+
+-- UNIQUE(staff, date, clock_in) only stopped an identical clock_in. Two shifts
+-- 08:00-16:00 and 09:00-17:00 both stood, and the hours were paid twice.
+--
+-- An open shift is bounded at the END OF ITS OWN DAY, not at the end of time.
+-- Treating it as open-ended was the first version, and it meant a single
+-- forgotten clock-out locked that staff member out of the log indefinitely —
+-- they could never record another shift. Bounding it at the day keeps a
+-- forgotten clock-out from blocking tomorrow's work, and the partial unique
+-- index below is what actually stops a second clock-in on an open shift.
+CREATE TRIGGER trg_att_no_overlap BEFORE INSERT ON attendance_log
+BEGIN
+    SELECT RAISE(ABORT, 'that shift overlaps one already logged for this staff member')
+    WHERE EXISTS (SELECT 1 FROM attendance_log a
+                   WHERE a.staff_id = NEW.staff_id
+                     AND NEW.clock_in < COALESCE(a.clock_out,   datetime(a.date,   '+1 day'))
+                     AND a.clock_in   < COALESCE(NEW.clock_out, datetime(NEW.date, '+1 day')));
+END;
+
+-- Attendance exists to price an hourly wage. A monthly-salaried manager
+-- clocking in would have been paid their monthly rate PER HOUR.
+CREATE TRIGGER trg_att_hourly_only BEFORE INSERT ON attendance_log
+BEGIN
+    SELECT RAISE(ABORT, 'attendance prices hourly wages: this staff member is not on one')
+    WHERE (SELECT w.wage_type FROM wage_rate w
+            WHERE w.staff_id = NEW.staff_id AND w.effective_from <= NEW.date
+            ORDER BY w.effective_from DESC LIMIT 1) IS NOT 'Hourly';
+END;
+
+CREATE TRIGGER trg_att_locked_once_settled BEFORE UPDATE ON attendance_log
+WHEN OLD.payroll_record_id IS NOT NULL
+     AND (NEW.clock_in <> OLD.clock_in
+       OR COALESCE(NEW.clock_out,'')    <> COALESCE(OLD.clock_out,'')
+       OR COALESCE(NEW.total_minutes,-1) <> COALESCE(OLD.total_minutes,-1))
+BEGIN
+    SELECT RAISE(ABORT, 'this shift has already been paid: correct it with an adjustment');
 END;
 
 -- Settled payroll is immutable. A correction is a new adjustment in the next
@@ -271,10 +399,106 @@ BEGIN
     SELECT RAISE(ABORT, 'a settled adjustment is immutable: raise an offsetting one instead');
 END;
 
-CREATE TRIGGER trg_ce_locked_once_settled BEFORE UPDATE ON commission_entry
-WHEN OLD.status = 'IncludedInPayroll' AND NEW.amount <> OLD.amount
+-- Settlement is an UPDATE, not an INSERT — an adjustment is raised Pending and
+-- picked up by a later run. So the INSERT-time check above was never the one
+-- that fired in practice, and a manager's chargeback against one dentist could
+-- be settled into a different staff member's payslip.
+CREATE TRIGGER trg_adj_settles_into_own_record_upd BEFORE UPDATE ON payroll_adjustment
+WHEN NEW.payroll_record_id IS NOT NULL
 BEGIN
-    SELECT RAISE(ABORT, 'a settled commission entry is immutable: clawback with an adjustment');
+    SELECT RAISE(ABORT, 'that payroll record belongs to a different staff member')
+    WHERE (SELECT staff_id FROM payroll_record WHERE id = NEW.payroll_record_id) <> NEW.staff_id;
+
+    SELECT RAISE(ABORT, 'that adjustment was raised after this pay period closed')
+    WHERE date(NEW.created_at) > (SELECT period_end FROM payroll_record WHERE id = NEW.payroll_record_id);
+END;
+
+-- Every guard above is BEFORE INSERT, and this one used to cover only `amount`
+-- on an already-settled row. So a clean entry could be written and then simply
+-- UPDATEd — onto another session, another person, another amount — walking
+-- straight past all four checks. An entry is a record of work done: only its
+-- settlement may change. A mistake made while Pending is deleted and rewritten;
+-- one already paid is clawed back with an adjustment.
+CREATE TRIGGER trg_ce_facts_immutable BEFORE UPDATE ON commission_entry
+WHEN NEW.staff_id           <> OLD.staff_id
+  OR NEW.source_type        <> OLD.source_type
+  OR COALESCE(NEW.session_id,'')         <> COALESCE(OLD.session_id,'')
+  OR COALESCE(NEW.performance_log_id,'') <> COALESCE(OLD.performance_log_id,'')
+  OR NEW.commission_rule_id <> OLD.commission_rule_id
+  OR NEW.commission_base    <> OLD.commission_base
+  OR NEW.amount             <> OLD.amount
+  OR NEW.earned_at          <> OLD.earned_at
+BEGIN
+    SELECT RAISE(ABORT, 'a commission entry records work done: only its settlement may change');
+END;
+
+-- The same settlement checks as on INSERT, for the UPDATE that actually
+-- performs settlement.
+CREATE TRIGGER trg_ce_settles_into_own_period_upd BEFORE UPDATE ON commission_entry
+WHEN NEW.payroll_record_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'that payroll record belongs to a different staff member')
+    WHERE (SELECT staff_id FROM payroll_record WHERE id = NEW.payroll_record_id) <> NEW.staff_id;
+
+    SELECT RAISE(ABORT, 'that commission was not earned inside this pay period')
+    WHERE date(NEW.earned_at) NOT BETWEEN (SELECT period_start FROM payroll_record WHERE id = NEW.payroll_record_id)
+                                      AND (SELECT period_end   FROM payroll_record WHERE id = NEW.payroll_record_id);
+END;
+
+-- A pay period is a partition of time, not an arbitrary window. Overlapping
+-- periods would pay the same commission and the same hours in two runs.
+CREATE TRIGGER trg_payroll_no_overlap BEFORE INSERT ON payroll_record
+BEGIN
+    SELECT RAISE(ABORT, 'that pay period overlaps another already recorded for this staff member')
+    WHERE EXISTS (SELECT 1 FROM payroll_record p
+                   WHERE p.staff_id = NEW.staff_id
+                     AND NEW.period_start <= p.period_end
+                     AND p.period_start   <= NEW.period_end);
+END;
+
+-- Approval is where a payslip stops being a draft and becomes a promise to pay,
+-- so it is where the totals must be made to follow from the rows underneath.
+-- Until this existed, base_pay and commission_total were free text: a record
+-- claiming 99,000,000 with no attendance behind it was accepted and approved.
+CREATE TRIGGER trg_payroll_approval_validates BEFORE UPDATE OF status ON payroll_record
+WHEN NEW.status = 'Approved' AND OLD.status = 'Draft'
+BEGIN
+    SELECT RAISE(ABORT, 'base_pay does not follow from the wage rate and the hours logged')
+    WHERE NEW.base_pay <> (
+        SELECT CASE w.wage_type
+                 WHEN 'Monthly' THEN w.rate
+                 ELSE COALESCE((SELECT SUM(CAST(ROUND(a.total_minutes / 60.0 *
+                                  (SELECT x.rate FROM wage_rate x
+                                    WHERE x.staff_id = a.staff_id AND x.effective_from <= a.date
+                                    ORDER BY x.effective_from DESC LIMIT 1)) AS INTEGER))
+                                 FROM attendance_log a WHERE a.payroll_record_id = NEW.id), 0)
+               END
+          FROM wage_rate w
+         WHERE w.id = (SELECT y.id FROM wage_rate y
+                        WHERE y.staff_id = NEW.staff_id AND y.effective_from <= NEW.period_end
+                        ORDER BY y.effective_from DESC LIMIT 1));
+
+    SELECT RAISE(ABORT, 'total_hours_worked does not match the attendance settled into this record')
+    WHERE NEW.total_hours_worked <> COALESCE((SELECT ROUND(SUM(total_minutes) / 60.0, 2)
+                                                FROM attendance_log WHERE payroll_record_id = NEW.id), 0);
+
+    SELECT RAISE(ABORT, 'commission_total does not equal the entries settled into this record')
+    WHERE NEW.commission_total <> COALESCE((SELECT SUM(amount) FROM commission_entry
+                                             WHERE payroll_record_id = NEW.id), 0);
+
+    SELECT RAISE(ABORT, 'credits and debits do not equal the adjustments settled into this record')
+    WHERE NEW.total_credits <> COALESCE((SELECT SUM(amount) FROM payroll_adjustment
+                                          WHERE payroll_record_id = NEW.id AND direction = 'Credit'), 0)
+       OR NEW.total_debits  <> COALESCE((SELECT SUM(amount) FROM payroll_adjustment
+                                          WHERE payroll_record_id = NEW.id AND direction = 'Debit'), 0);
+END;
+
+-- The bounty belongs to the role that earns it.
+CREATE TRIGGER trg_rpl_is_a_receptionist BEFORE INSERT ON receptionist_performance_log
+BEGIN
+    SELECT RAISE(ABORT, 'only a receptionist earns a receptionist performance bounty')
+    WHERE (SELECT u.role FROM staff_profile sp JOIN app_user u ON u.id = sp.user_id
+            WHERE sp.id = NEW.receptionist_id) <> 'Receptionist';
 END;
 
 
@@ -284,11 +508,10 @@ END;
 
 -- The wage rate in force for a staff member on any given date.
 CREATE VIEW v_current_wage AS
-SELECT s.id AS staff_id, u.full_name AS staff, u.role, sp.employment_status,
+SELECT s.id AS staff_id, u.full_name AS staff, u.role, s.employment_status,
        w.wage_type, w.rate, w.effective_from, w.reason
 FROM staff_profile s
-JOIN staff_profile sp ON sp.id = s.id
-JOIN app_user u       ON u.id = s.user_id
+JOIN app_user u ON u.id = s.user_id
 JOIN wage_rate w ON w.id = (
     SELECT id FROM wage_rate x WHERE x.staff_id = s.id AND x.effective_from <= date('now')
     ORDER BY x.effective_from DESC LIMIT 1)
@@ -309,6 +532,7 @@ JOIN wage_rate w ON w.id = (
     SELECT id FROM wage_rate x WHERE x.staff_id = a.staff_id AND x.effective_from <= a.date
     ORDER BY x.effective_from DESC LIMIT 1)
 WHERE a.total_minutes IS NOT NULL
+  AND w.wage_type = 'Hourly'   -- belt and braces; trg_att_hourly_only keeps the log clean
 ORDER BY u.full_name, a.date;
 
 -- The manager's commission dashboard. MANAGER-ONLY.

@@ -797,21 +797,127 @@ IS NULL)` keeps an entry from claiming to be both unsettled and already paid.
 | `v_payslip` | The August run: hours, base, commission, credits, debits, net |
 | `v_unsettled` | What the next run owes and claws back |
 
+### Eighteen gaps found by auditing the module after it was built
+
+The first 14 negative tests all passed, and proved less than they looked. Asking
+the other question — *what would still get through?* — found eighteen holes. The
+seed itself was clean: every total reconciled, every entry cited a rule matching
+its holder's role, and rule precedence resolved correctly in the data. What was
+missing was anything **making** that true.
+
+**1. Every guard was BEFORE INSERT, so UPDATE walked past all of them.** A clean
+entry could be written and then edited onto another session, another person, or
+another amount. `total_minutes` — the quantity the whole wage is multiplied by —
+could simply be typed over. Closed with `trg_ce_facts_immutable` (an entry
+records work done; only its settlement may change), an UPDATE twin of the
+minutes check, and `trg_att_locked_once_settled`. A Pending entry entered by
+mistake is *deleted* and rewritten; one already paid is clawed back with an
+adjustment.
+
+**2. Rule precedence was a comment, not a constraint.** The three-level
+resolution documented above `commission_rule` existed only in prose: nothing
+tied an entry to the rule that actually applied. All four of these were
+accepted —
+
+| Accepted before | Should have been |
+|-----------------|------------------|
+| assistant paid on the doctor's 15% | his own 5% — **360,000 instead of 120,000** |
+| Dr Quỳnh billing Dr Minh's personal 22% contract | the 20% she is entitled to |
+| a composite filling paid at the implant rate | the 15% catch-all |
+| a doctor citing the receptionist's fixed bounty | not a rule available to him at all |
+
+`trg_ce_cites_the_applicable_rule` now runs the documented resolution — contract
+rate, then category rate, then role catch-all — and refuses any entry citing
+anything else. The comment and the schema finally say the same thing.
+
+**3. Payroll totals did not have to follow from their rows.** `ck_pay_net` only
+checked that the figures were internally consistent; a record claiming
+`base_pay` of 99,000,000 with no attendance behind it was accepted *and
+approvable*. This is the module 6 `line_total` gap in a new place, and it is
+closed the same way: `trg_payroll_approval_validates` recomputes base pay from
+the wage in force, hours from the attendance linked, commission from the entries
+linked, and credits and debits from the adjustments linked — **at the moment of
+approval**, which is when a draft becomes a promise to pay.
+
+That forced the seed to be restructured into the three steps a real run takes:
+open the record as a Draft, gather the month's rows into it, then approve and
+pay. A record inserted straight into `Paid`, as the first version did, would
+never pass the gate that matters.
+
+**4. Settlement did not check whose payslip it was.** One staff member's
+commission could be settled into another's payroll record, and September's
+commission into the August run. Worse, the first fix only guarded INSERT — and
+settlement is an **UPDATE**, so the check never fired in practice. That was
+caught not by a negative test but by a *positive* one: running a September
+payroll end to end and asking whether the manager's chargeback against one
+dentist could land on the assistant's payslip. It could.
+
+**5. Attendance had no overlap rule.** `UNIQUE(staff, date, clock_in)` only
+stopped an identical clock-in; 08:00–16:00 and 09:00–17:00 both stood and both
+were paid. `date` could also disagree with `clock_in`, which would price the
+shift at some other day's rate — and a **monthly-salaried** manager could clock
+in and be paid their monthly rate *per hour*.
+
+The overlap trigger's first version treated an open shift as running to the end
+of time. That correctly refused a second clock-in, but a positive control showed
+what else it refused: one forgotten clock-out locked that staff member out of
+the log *permanently* — they could never record another shift. An open shift is
+now bounded at the end of its own day, and a partial **unique** index on
+`(staff_id) WHERE clock_out IS NULL` is what enforces one open shift at a time.
+Both directions now hold: a night shift crossing midnight and tomorrow's shift
+are accepted; overlapping shifts and a double clock-in are not.
+
+**6. The receptionist's uniqueness was wrong in both directions.** The UNIQUE
+spanned `appointment_id`, and SQLite treats NULLs as distinct — so the same
+registration logged twice with no appointment was two rows, and paid twice. The
+uniqueness is genuinely different per event type, and now says so: a patient is
+registered new exactly **once**; a follow-up is unique to the **appointment** it
+brought them back for, and requires one. Nothing checked the logger was a
+receptionist, either.
+
+**7. `ck_pay_approved` had the same hole as `ck_inv_number_only_when_issued`.**
+Written as an equality, a `Paid` record with an `approved_at` but **no approver**
+passed — both sides were simply false. Rewritten as a `CASE`, exactly as in
+module 6. The same shape of bug, in the same shape of constraint, two modules
+apart.
+
+### The contract rate, proven
+
+`cr-04` — Dr Minh's personal 22% on implants — had no row exercising it, because
+the seed's only implant (`pr-03`) is still `Scheduled`. That state is worth
+keeping: it is the one procedure showing *accepted and booked but not yet done*.
+So the rate is proven by test instead, completing `ps-03` inside a rolled-back
+transaction:
+
+| Claim | Result |
+|-------|--------|
+| Dr Minh at his contract 22% = 5,500,000 | **accepted** — the rule that applies |
+| the same work at the role's implant 20% | rejected |
+| the same work at the 15% catch-all | rejected |
+| Dr Quỳnh placing it, at 20% | **accepted** — she has no contract rate |
+| Dr Quỳnh claiming Dr Minh's 22% | rejected |
+| the assistant on that implant, 5% | **accepted** |
+
 ### Verification
 
-`integrity_check` ok, `foreign_key_check` zero rows, **14 negative tests** all
-rejecting: earning on your own treatment (both sessions), crediting someone who
-did not work the session, paying the same person twice for one session, earning
-on a session that is not `Completed`, an amount inflated past its rule, a base
-that is not the session's value, a rule not yet in force, editing an approved
-payroll record or a settled entry, a `net_pay` that does not follow from its
-parts, attendance minutes disagreeing with the clock, clocking out before
-clocking in, and a blank adjustment reason.
+`integrity_check` ok, `foreign_key_check` zero rows, **24 negative tests** all
+rejecting and **10 positive controls** accepted.
+
+Two lessons repeated from earlier modules. First, a rejection is only evidence
+once you know *which* rule rejected it: the four wrong-rule tests all "passed"
+on the first run, and every one had tripped a different trigger — two on "did
+not work this session" because the staff member picked had not worked it, one on
+the duplicate index. Rerun against the real workers, all four were accepted.
+Second, the positive controls earned their place — two of the eighteen holes
+(settlement by UPDATE, and the lockout from a forgotten clock-out) were found by
+asking what the new constraints wrongly *refused*, not what they let through.
 
 Seven August payslips reconcile, and the standing regression now spans all eight
-modules — payslip arithmetic, commission equals base × rule rate, nobody paid on
-their own treatment, commission only to the worker, free rework earns nothing,
-settled entries always carry a payroll record, plus the module 6 and 7 checks.
+modules — payslip arithmetic, approved totals matching the rows behind them,
+commission equals base × rule rate, every entry citing its own role's rule,
+nobody paid on their own treatment, commission only to the worker, free rework
+earning nothing, settlement landing on its own record, no overlapping shifts,
+plus the module 6 and 7 checks.
 
 ### A prerequisite this module exposed in module 6
 

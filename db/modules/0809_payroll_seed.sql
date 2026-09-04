@@ -65,18 +65,24 @@ INSERT INTO receptionist_performance_log (id, receptionist_id, event_type, patie
 ('rpl-03','st-rec01','SuccessfulFollowUp',  'pp-04','ap-06','2026-09-02 14:30:00');
 
 -- ----------------------------------------------------------- the payroll run --
--- August 2026, approved and paid. base_pay for monthly staff is the salary in
--- force; for the assistant it is hours x the rate on each day.
-INSERT INTO payroll_record (id, staff_id, period_start, period_end, total_hours_worked, base_pay, commission_total, total_credits, total_debits, net_pay, status, approved_by, approved_at, paid_at, notes) VALUES
-('pay-2608-mgr01','st-mgr01','2026-08-01','2026-08-31', 0,25000000,      0,0,0,25000000,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00',NULL),
-('pay-2608-doc01','st-doc01','2026-08-01','2026-08-31', 0,40000000, 210000,0,0,40210000,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00',NULL),
-('pay-2608-doc02','st-doc02','2026-08-01','2026-08-31', 0,35000000,      0,0,0,35000000,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00','On maternity leave.'),
-('pay-2608-doc04','st-doc04','2026-08-01','2026-08-31', 0,32000000,  30000,0,0,32030000,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00',NULL),
-('pay-2608-rec01','st-rec01','2026-08-01','2026-08-31', 0,12000000, 200000,0,0,12200000,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00',NULL),
-('pay-2608-acc01','st-acc01','2026-08-01','2026-08-31', 0,15000000,      0,0,0,15000000,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00',NULL),
+-- August 2026. The run is seeded the way it is actually performed, in three
+-- steps, because trg_payroll_approval_validates checks the totals against the
+-- rows at the moment of approval — a record inserted straight into 'Paid' would
+-- never pass under it. base_pay for monthly staff is the salary in force; for
+-- the assistant it is hours x the rate on each day.
+--
+--   1. open the run as a DRAFT
+INSERT INTO payroll_record (id, staff_id, period_start, period_end, total_hours_worked, base_pay, commission_total, total_credits, total_debits, net_pay, notes) VALUES
+('pay-2608-mgr01','st-mgr01','2026-08-01','2026-08-31', 0,25000000,      0,0,0,25000000,NULL),
+('pay-2608-doc01','st-doc01','2026-08-01','2026-08-31', 0,40000000, 210000,0,0,40210000,NULL),
+('pay-2608-doc02','st-doc02','2026-08-01','2026-08-31', 0,35000000,      0,0,0,35000000,'On maternity leave.'),
+('pay-2608-doc04','st-doc04','2026-08-01','2026-08-31', 0,32000000,  30000,0,0,32030000,NULL),
+('pay-2608-rec01','st-rec01','2026-08-01','2026-08-31', 0,12000000, 200000,0,0,12200000,NULL),
+('pay-2608-acc01','st-acc01','2026-08-01','2026-08-31', 0,15000000,      0,0,0,15000000,NULL),
 -- 63.5 hours: 24 at the trainee rate, 39.5 after the raise
-('pay-2608-ast01','st-ast01','2026-08-01','2026-08-31',63.5,3252500, 60000,0,0, 3312500,'Paid','u-mgr01','2026-09-01 09:00:00','2026-09-01 10:00:00','Rate rose on 16 August; each day priced at the rate then in force.');
+('pay-2608-ast01','st-ast01','2026-08-01','2026-08-31',63.5,3252500, 60000,0,0, 3312500,'Rate rose on 16 August; each day priced at the rate then in force.');
 
+--   2. gather the month's rows into it
 UPDATE attendance_log SET payroll_record_id='pay-2608-ast01' WHERE date BETWEEN '2026-08-01' AND '2026-08-31';
 
 -- ------------------------------------------------------- commission entries --
@@ -102,6 +108,13 @@ INSERT INTO commission_entry (id, staff_id, source_type, session_id, performance
 ('ce-13','st-doc01','SessionCompleted','ps-09',NULL,'cr-01',2400000,360000,'Pending','2026-09-03 10:35:00'),
 ('ce-14','st-ast01','SessionCompleted','ps-09',NULL,'cr-02',2400000,120000,'Pending','2026-09-03 10:35:00'),
 ('ce-15','st-rec01','ReceptionistEvent',NULL,'rpl-03','cr-06',0,50000,'Pending','2026-09-02 14:30:00');
+
+--   3. approve, then pay. Approval is the gate: every total above is now
+--      recomputed from the attendance, entries and adjustments actually linked.
+UPDATE payroll_record SET status='Approved', approved_by='u-mgr01', approved_at='2026-09-01 09:00:00'
+ WHERE period_start='2026-08-01';
+UPDATE payroll_record SET status='Paid', paid_at='2026-09-01 10:00:00'
+ WHERE period_start='2026-08-01';
 
 -- ---------------------------------------------------------- the chargeback --
 -- tf-01: a retained root fragment, judged the clinic's own technique. The
