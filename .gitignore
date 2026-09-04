@@ -5,3 +5,27 @@
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Node
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Editors
+.idea/
+.vscode/
+*.swp

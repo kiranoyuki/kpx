@@ -4,6 +4,20 @@
 > 319 declarative constraints stay. Auth is **parked** until the rest of the backend is
 > complete. Backend first, front end after.
 
+> **Two sections below are superseded — the rest stands.**
+>
+> - **§1, the in-process mutex.** Not needed. `better-sqlite3` is synchronous and Node is
+>   single-threaded, so a sync transaction is already atomic against other requests in the
+>   process. The rule that replaces the mutex is *never `await` inside a transaction*.
+>   See `backend-skeleton.md`.
+> - **§3, "the 37 views are already the read model."** Wrong: **16 of the 37 carry no id
+>   column.** `v_day_sheet` returns patient and doctor names with no `appointment_id`, so a
+>   client cannot click a row. Read endpoints are their own queries in `*.queries.ts`; the
+>   views remain a reporting and verification layer.
+>
+> The command inventory in §3 and the derived-column analysis in §1 remain the spec.
+> Current working docs: `checklist.md`, `conventions.md`, `open-questions.md`.
+
 ---
 
 ## 1. Where the rules execute — decided
