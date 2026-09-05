@@ -166,7 +166,7 @@ deliberate `await` inside a `write()` → **lint fails**. Remove it.
 - [x] `shared/errors/handler.ts` — one response shape: `{ error: { code, message, field? } }`
 
 **5b — translation**
-- [ ] `shared/errors/translate.ts` — SQLite error → `AppError`
+- [x] `shared/errors/translate.ts` — SQLite error → `AppError`
 
 **5c — catalogue**
 - [ ] `shared/errors/catalogue.ts` — the machine-readable source of truth: `code → { rule, en, vi }`, `vi` null for now

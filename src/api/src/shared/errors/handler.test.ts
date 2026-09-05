@@ -1,3 +1,8 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { openDatabase, Sqlite, type SqliteDatabase } from '@kpx/db'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -132,5 +137,97 @@ describe('AppError.is', () => {
 
   it('rejects a look-alike object that is not an Error', () => {
     expect(AppError.is({ code: 'FAKE', status: 422 })).toBe(false)
+  })
+})
+
+/**
+ * The step's Verify line, end to end: a constraint the schema still enforces
+ * fires deep inside a request and has to arrive as a usable HTTP answer rather
+ * than a 500.
+ */
+describe('a SQLite constraint reaching HTTP', () => {
+  let dir: string
+  let sqlite: SqliteDatabase
+
+  function appOver(sql: string): FastifyInstance {
+    dir = mkdtempSync(join(tmpdir(), 'kpx-handler-'))
+    const path = join(dir, 'test.db')
+    new Sqlite(path).close()
+    sqlite = openDatabase(path)
+    sqlite.exec(`
+      CREATE TABLE owner (id TEXT PRIMARY KEY);
+      CREATE TABLE thing (
+        id       TEXT PRIMARY KEY,
+        owner_id TEXT REFERENCES owner(id),
+        email    TEXT UNIQUE,
+        channel  TEXT,
+        made_by  TEXT,
+        CONSTRAINT ck_thing_selfmade_is_online CHECK (made_by IS NOT NULL OR channel = 'Online')
+      );
+    `)
+    app = Fastify({ logger: false })
+    registerErrorHandler(app)
+    app.get('/write', () => {
+      sqlite.prepare(sql).run()
+      return { ok: true }
+    })
+    return app
+  }
+
+  afterEach(() => {
+    sqlite.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('a named CHECK violation is a 422 with the constraint code', async () => {
+    const response = await appOver(
+      `INSERT INTO thing (id, channel, made_by) VALUES ('t1', 'FrontDesk', NULL)`,
+    ).inject({ method: 'GET', url: '/write' })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.code).toBe('CK_THING_SELFMADE_IS_ONLINE')
+  })
+
+  it('a foreign-key violation is a 422, not a 500', async () => {
+    const response = await appOver(
+      `INSERT INTO thing (id, owner_id) VALUES ('t1', 'no-such-owner')`,
+    ).inject({ method: 'GET', url: '/write' })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.code).toBe('REFERENCED_ROW_MISSING')
+  })
+
+  it('an unknown SQLite error is a 500 that leaks nothing', async () => {
+    const response = await appOver(`INSERT INTO no_such_table (id) VALUES ('x')`).inject({
+      method: 'GET',
+      url: '/write',
+    })
+
+    expect(response.statusCode).toBe(500)
+    expect(response.json()).toEqual({
+      error: { code: 'INTERNAL', message: 'Internal server error' },
+    })
+    expect(response.payload).not.toContain('no_such_table')
+    expect(response.payload).not.toContain('SQLITE')
+  })
+
+  it('an unnamed CHECK does not leak its predicate over the wire', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'kpx-handler-'))
+    const path = join(dir, 'test.db')
+    new Sqlite(path).close()
+    sqlite = openDatabase(path)
+    sqlite.exec(`CREATE TABLE t (id TEXT PRIMARY KEY, status TEXT CHECK (status IN ('Draft','Live')))`)
+    app = Fastify({ logger: false })
+    registerErrorHandler(app)
+    app.get('/write', () => {
+      sqlite.prepare(`INSERT INTO t VALUES ('x', 'Nonsense')`).run()
+      return { ok: true }
+    })
+
+    const response = await app.inject({ method: 'GET', url: '/write' })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.code).toBe('CONSTRAINT_VIOLATED')
+    expect(response.payload).not.toContain('Draft')
   })
 })
