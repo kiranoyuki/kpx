@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 3 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 4 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -151,9 +151,10 @@ reporting `false` here means a third of enforcement is silently off.
 
 ## Step 4 — Transactions
 
-- [ ] `db/tx.ts` exporting `read()` and `write()`; `write()` wraps `db.transaction`
-- [ ] Header comment stating the allowed/forbidden list from `conventions.md` §3
-- [ ] ESLint rule forbidding `await` anywhere inside a `write()` callback
+- [x] `db/tx.ts` exporting `read()` and `write()`; `write()` wraps `db.transaction`
+- [x] Header comment stating the allowed/forbidden list from `conventions.md` §3
+- [x] ESLint rule forbidding `await` anywhere inside a `write()` callback — and `for await`,
+      and an `async` callback, which a bare `await` ban would let through
 
 **Verify:** a test writes two rows and throws between them → neither row persists. Add a
 deliberate `await` inside a `write()` → **lint fails**. Remove it.

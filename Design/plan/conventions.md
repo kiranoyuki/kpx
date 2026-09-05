@@ -197,6 +197,24 @@ write()
 One `await` splits the sync block and reopens every check-then-act race. ESLint enforces
 this; it is the highest-value guardrail in the repo.
 
+### Kysely builds; better-sqlite3 executes
+
+Kysely's own execute API returns a Promise, so `await qb.execute()` inside a transaction
+would trip the rule above on every single query. It is therefore used for what it is good at
+— **building typed SQL** — and `.compile()` hands the statement to `better-sqlite3` to run
+synchronously:
+
+```ts
+write((t) => {
+  const rows = t.all(t.qb.selectFrom('appointment').selectAll())   // sync
+  t.run(t.qb.insertInto('appointment').values(row))                // sync
+})
+```
+
+`t.qb` builds and never executes; `all` / `get` / `run` execute. A query builder left
+unpassed is a no-op, not a pending Promise. Type safety is kept and the yield is not.
+`.execute()` is never called anywhere in the codebase.
+
 **Consequence — the outbox.** Anything that must reach the outside world is *recorded*
 inside the transaction and *dispatched* separately. A command that causes a notification
 writes the row in its own transaction; it never sends anything itself.
