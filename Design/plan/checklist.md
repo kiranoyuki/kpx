@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 0 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 3 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -91,35 +91,35 @@ No business logic in this phase. Its only job is that every later step is copy-t
 
 ## Step 1 — Backend skeleton at `src/api/`
 
-- [ ] `package.json`, `tsconfig.json`, `.env.example`, `eslint.config.js` — all inside `src/api/`, none at the repo root
-- [ ] Fastify, TypeScript, Vitest, tsx installed
-- [ ] `src/app.ts` exports `buildApp()` returning a `FastifyInstance` — **never listens**, so tests can import it
-- [ ] `src/main.ts` boots, listens on 3000, handles graceful shutdown
-- [ ] `src/config.ts` parses and validates env once, typed
-- [ ] `GET /api/health` → `{ status: "ok" }`
-- [ ] Scripts: `dev`, `build`, `typecheck`, `lint`, `test`
+- [x] `package.json`, `tsconfig.json`, `.env.example`, `eslint.config.js` — all inside `src/api/`, none at the repo root
+- [x] Fastify, TypeScript, Vitest, tsx installed
+- [x] `src/app.ts` exports `buildApp()` returning a `FastifyInstance` — **never listens**, so tests can import it
+- [x] `src/main.ts` boots, listens on 3000, handles graceful shutdown
+- [x] `src/config.ts` parses and validates env once, typed
+- [x] `GET /api/health` → `{ status: "ok" }`
+- [x] Scripts: `dev`, `build`, `typecheck`, `lint`, `test`
 
 **Verify:** `npm run dev` starts · `curl localhost:3000/api/health` → 200 · `npm run
 typecheck` and `npm test` both pass.
 
 ## Step 2 — Clinic UI skeleton at `src/ui-clinic/`
 
-- [ ] Vite + React + TypeScript
-- [ ] **Ant Design** installed, `ConfigProvider` at the root with `viVN` wired but English for now
-- [ ] React Router with an `AppLayout`: AntD `Layout` + `Sider` nav + `Content` —
+- [x] Vite + React + TypeScript
+- [x] **Ant Design** installed, `ConfigProvider` at the root with `viVN` wired but English for now
+- [x] React Router with an `AppLayout`: AntD `Layout` + `Sider` nav + `Content` —
       the internal-tool shape, which is why the patient app cannot reuse it
-- [ ] Two placeholder pages so navigation is real
-- [ ] TanStack Query provider wired (used from step 11)
-- [ ] Vite dev proxy `/api` → `localhost:3000`
+- [x] Two placeholder pages so navigation is real
+- [x] TanStack Query provider wired (used from step 11)
+- [x] Vite dev proxy `/api` → `localhost:3000`
 
 **Verify:** `npm run dev` serves a styled page, nav switches routes, no console errors.
 
 ## Step 3 — Database connection
 
-- [ ] `db/connection.ts` — one long-lived `better-sqlite3` handle to `db/kpx.db`
-- [ ] Pragmas set once at open: `foreign_keys = ON`, `journal_mode = WAL`, `busy_timeout = 5000`, `synchronous = NORMAL`
-- [ ] `kysely-codegen` script → `db/schema.d.ts`, committed
-- [ ] `/api/health` extended to report `foreignKeys` and `journalMode`
+- [x] `db/connection.ts` — one long-lived `better-sqlite3` handle to `db/kpx.db`
+- [x] Pragmas set once at open: `foreign_keys = ON`, `journal_mode = WAL`, `busy_timeout = 5000`, `synchronous = NORMAL`
+- [x] `kysely-codegen` script → `db/schema.d.ts`, committed
+- [x] `/api/health` extended to report `foreignKeys` and `journalMode`
 
 **Verify:** `/api/health` → `{ status:"ok", foreignKeys:true, journalMode:"wal" }`. Foreign keys
 reporting `false` here means a third of enforcement is silently off.
