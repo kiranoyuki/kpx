@@ -31,6 +31,12 @@ export {
   type SqliteDatabase,
 } from './connection.js'
 
+export {
+  createTransactor,
+  type Transactor,
+  type Tx,
+} from './tx.js'
+
 export type { DB } from './schema.js'
 
 /**
