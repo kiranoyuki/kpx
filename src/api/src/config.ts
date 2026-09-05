@@ -1,6 +1,8 @@
 // Parses and validates process.env once, at import time, so a bad environment
 // fails at startup rather than partway through a request.
 
+import { fileURLToPath } from 'node:url'
+
 const NODE_ENVS = ['development', 'test', 'production'] as const
 type NodeEnv = (typeof NODE_ENVS)[number]
 
@@ -8,7 +10,17 @@ export interface Config {
   nodeEnv: NodeEnv
   port: number
   host: string
+  databasePath: string
 }
+
+/**
+ * `db/kpx.db` at the repository root, resolved from this module's own location
+ * rather than from `process.cwd()` — the API is started from `src/api/` by npm
+ * scripts, from the repo root by some editors, and from anywhere at all by a
+ * process manager. Source (`src/api/src/`) and build output (`src/api/dist/`)
+ * sit at the same depth, so one relative path serves both.
+ */
+const DEFAULT_DATABASE_PATH = fileURLToPath(new URL('../../../db/kpx.db', import.meta.url))
 
 function parseNodeEnv(raw: string | undefined): NodeEnv {
   const value = raw ?? 'development'
@@ -27,11 +39,17 @@ function parsePort(raw: string | undefined): number {
   return port
 }
 
+function parseDatabasePath(raw: string | undefined): string {
+  if (raw === undefined || raw === '') return DEFAULT_DATABASE_PATH
+  return raw
+}
+
 function parseConfig(env: NodeJS.ProcessEnv): Config {
   return {
     nodeEnv: parseNodeEnv(env.NODE_ENV),
     port: parsePort(env.PORT),
     host: env.HOST ?? '0.0.0.0',
+    databasePath: parseDatabasePath(env.DATABASE_PATH),
   }
 }
 
