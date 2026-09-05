@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify'
 
 import { readPragmas, type SqliteDatabase } from '@kpx/db'
 
+import { registerErrorHandler } from './shared/errors/handler.js'
+
 /**
  * What the app needs from the outside. Passed in rather than imported, per
  * `conventions.md` §2 — the database handle belongs to whoever opened it
@@ -17,6 +19,9 @@ export interface AppDeps {
 // main.ts the only place that binds a port.
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({ logger: true })
+
+  // Registered first, so nothing added later can escape it.
+  registerErrorHandler(app)
 
   // Reports the pragmas rather than asserting them: `foreign_keys` is
   // per-connection and off by default, so the only trustworthy answer is the

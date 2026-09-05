@@ -162,8 +162,8 @@ deliberate `await` inside a `write()` → **lint fails**. Remove it.
 ## Step 5 — Error layer  *(3 PRs)*
 
 **5a — contract**
-- [ ] `shared/errors/AppError.ts` — code + HTTP status + message key
-- [ ] `shared/errors/handler.ts` — one response shape: `{ error: { code, message, field? } }`
+- [x] `shared/errors/AppError.ts` — code + HTTP status + message key
+- [x] `shared/errors/handler.ts` — one response shape: `{ error: { code, message, field? } }`
 
 **5b — translation**
 - [ ] `shared/errors/translate.ts` — SQLite error → `AppError`
