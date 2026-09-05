@@ -22,11 +22,18 @@ Before merge: `/code-review`. On any step touching money or auth: `/security-rev
 
 ## 2. Structure — the use case is the unit
 
-**Three packages: `src/api/`, `src/ui-clinic/`, `src/ui-patient/`.** One API, two front ends
-— internal and public. The two UI packages share no code with each other by default; where
-both need the same fifty-line fetch wrapper, each keeps its own copy. A shared UI package is
-a fourth package and a deliberate decision, not a reflex. Everything below concerns
-`src/api/`.
+**Four packages: `db/`, `src/api/`, `src/ui-clinic/`, `src/ui-patient/`.** One database layer,
+one API, two front ends — internal and public.
+
+`@kpx/db` owns everything that knows SQLite is underneath: the SQL modules, `connection.ts`,
+`tx.ts`, the generated `schema.ts`, and the `better-sqlite3` and `kysely` dependencies
+themselves. Consumers import the query surface from it rather than installing `kysely`, which
+is what keeps one driver and one `Kysely` class in a tree with no shared lockfile. It is a
+`file:` link, so its `dist/` is built by the consumer's `pre*` hooks.
+
+The two UI packages share no code with each other by default; where both need the same
+fifty-line fetch wrapper, each keeps its own copy. A shared *UI* package would be a fifth, and
+a deliberate decision rather than a reflex. Everything below concerns `src/api/`.
 
 Files are named after the use case, not the module. A module never accumulates a
 `scheduling.commands.ts` that grows to forty functions.

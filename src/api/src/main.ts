@@ -1,6 +1,6 @@
 import { buildApp } from './app.js'
 import { config } from './config.js'
-import { openDatabase } from './db/connection.js'
+import { openDatabase } from '@kpx/db'
 
 // The one long-lived handle for this process. Opened before the app so a bad
 // DATABASE_PATH fails here, at startup, rather than on the first request.

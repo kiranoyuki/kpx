@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 
-import { readPragmas, type SqliteDatabase } from './db/connection.js'
+import { readPragmas, type SqliteDatabase } from '@kpx/db'
 
 /**
  * What the app needs from the outside. Passed in rather than imported, per

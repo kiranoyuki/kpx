@@ -2,11 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import Database from 'better-sqlite3'
+import { openDatabase, Sqlite, type SqliteDatabase } from '@kpx/db'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildApp } from './app.js'
-import { openDatabase, type SqliteDatabase } from './db/connection.js'
 
 let dir: string
 let sqlite: SqliteDatabase
@@ -14,7 +13,7 @@ let sqlite: SqliteDatabase
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'kpx-app-'))
   const path = join(dir, 'test.db')
-  new Database(path).close()
+  new Sqlite(path).close()
   sqlite = openDatabase(path)
 })
 
