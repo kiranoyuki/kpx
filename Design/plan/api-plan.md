@@ -175,6 +175,12 @@ Every command runs in one transaction, and every command threads the **acting us
 through — the schema carries `created_by`, `set_by`, `decided_by`, `approved_by`
 throughout, and those are the audit trail.
 
+**`bookProvisional` splits in two.** Patients self-serve from a separate public web app, so
+what was one command becomes a public `submitBookingRequest` and the clinic-side
+`bookFromRequest` / `declineRequest`. Reception still books the appointment, through the same
+use case and the same rules 1–6; the patient never names a doctor or a chair. See
+`checklist.md` Phase P.
+
 ### Cross-cutting
 
 - **Error contract.** Each rule has an id and a user-facing message. Field-level where
@@ -183,6 +189,9 @@ throughout, and those are the audit trail.
   commission dashboard is manager-only, and patients reach only their own records —
   which is now an API responsibility, since `trg_notif_patient_sees_own` and the
   cross-patient checks are going.
+  **Superseded in shape, not in substance:** this is no longer a matrix applied at build
+  order step 3. The two front ends make it structural — three route groups, one principal
+  kind each, fixed in Phase A. See `conventions.md` §15.
 - **SQLite operations.** WAL mode, `busy_timeout`, `foreign_keys = ON` per connection.
 
 ---

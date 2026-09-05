@@ -3,37 +3,52 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 87 · steps done 0 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 0 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
 | A | Foundation — the stack, no business logic | 1–13 | — | the tools work |
 | B0 | Register a patient | 14–18 | 0 | the plumbing works, end to end |
 | B1 | Appointments | 19–25 | 1–6 | the architecture works, under a cross-entity invariant |
-| C+ | Remaining modules | 26+ | 7–87 | |
+| C | Clinic setup and staff | 26+ | 0 | |
+| P | Patient app — the second front end | P1–P6 | 88–89 | one API serves two audiences |
+| D+ | Remaining modules | | 7–87 | |
 
 Two slices before the rest, deliberately: B0 debugs React, Ant Design, TanStack Query,
 Fastify, Zod, Kysely and Playwright against a workflow carrying **no catalogue rules and no
 cross-entity invariants**. B1 then adds a check-then-write rule to a stack already known to
 work. Debugging both at once is what this ordering avoids.
 
-Layout: `src/api/` and `src/ui/` alongside the existing `db/` and `Design/`. This supersedes
-`backend-skeleton.md`, which placed the API at `api/`.
+Layout: `src/api/`, `src/ui-clinic/` and `src/ui-patient/` alongside the existing `db/` and
+`Design/`. This supersedes `backend-skeleton.md`, which placed the API at `api/`.
 
 ## Repo layout and the shared contract
 
-**Two independent packages. There is no root `package.json`.**
+**Three independent packages. There is no root `package.json`.**
 
 ```
-src/api/   package.json  package-lock.json  tsconfig.json  node_modules/
-src/ui/    package.json  package-lock.json  tsconfig.json  node_modules/
+src/api/          package.json  package-lock.json  tsconfig.json  node_modules/
+src/ui-clinic/    package.json  package-lock.json  tsconfig.json  node_modules/
+src/ui-patient/   package.json  package-lock.json  tsconfig.json  node_modules/   ← Phase P
 ```
+
+**Why two front ends.** Patients book and follow their own treatment on a public app;
+receptionists and staff run the clinic on an internal one. They share the API — one database,
+one set of rules, so a self-booked slot and a front-desk slot cannot conflict — and share
+nothing else. The domain model has said this from the start: `v_portal_access` returns
+`patient_portal` and `staff_portal` as separate answers, derived from which profile a person
+holds rather than from their `role`.
 
 Not an npm workspace, deliberately. A workspace means one root lockfile, which two people —
 or two agents — working in parallel rewrite simultaneously, producing a conflict in the file
 that is worst to merge. The cost is some duplicated devDependency versions; the benefit is
-that the two packages share no mutable file. When shared types are genuinely needed, add a
-third package as a deliberate decision.
+that the packages share no mutable file. That argument gets stronger with three packages, not
+weaker. When shared types are genuinely needed, add a fourth package as a deliberate decision.
+
+**The two UI packages share no code by default.** The step 11 fetch wrapper is about fifty
+lines; `ui-patient` gets its own copy when Phase P arrives. Error codes travel in the response
+body, so neither app needs a shared constants file. Revisit only if the duplication grows past
+a page.
 
 **Fixed now so nothing renegotiates it later:**
 
@@ -41,14 +56,32 @@ third package as a deliberate decision.
 |---|---|
 | Node | 22 LTS |
 | API port | 3000 |
-| UI dev port | 5173 |
-| Vite proxy | `/api` → `http://localhost:3000`, no rewrite |
-| Route prefix | **every** API route lives under `/api` |
+| `ui-clinic` dev port | 5173 |
+| `ui-patient` dev port | 5174 |
+| Vite proxy (both UIs) | `/api` → `http://localhost:3000`, no rewrite |
+| API base in both UIs | relative `/api` — never an absolute origin |
+| Route prefix | every API route lives under `/api`, in one of the three groups below |
 | Health | `GET /api/health` → `{ status, foreignKeys, journalMode }` |
 
-**Directory ownership.** `src/api/**` and `src/ui/**` are owned separately and never edited
-together in one PR. `Design/**` and `db/**` are owned by neither and stay frozen during
-implementation work.
+### Three route groups, one per audience
+
+| Group | Principal | Notes |
+|---|---|---|
+| `/api/clinic/*` | staff — required | everything the internal app calls |
+| `/api/public/*` | anonymous | rate-limited; the only unauthenticated writes in the system |
+| `/api/patient/*` | authenticated patient | **not registered until Phase J** — see `conventions.md` §15 |
+| `/api/health` | none | unchanged |
+
+The group is what makes authorization structural rather than a per-route habit: a
+patient-facing endpoint cannot be reached with staff semantics because it lives in a
+different group behind a different principal resolver. Fixing the prefixes now costs a line;
+retrofitting them after Phase C is a churn PR touching every route file for no behaviour
+change.
+
+**Directory ownership.** `src/api/**`, `src/ui-clinic/**` and `src/ui-patient/**` are owned
+separately and never edited together in one PR. `Design/**` and `db/**` are owned by neither
+and stay frozen during implementation work — with exactly one scheduled exception, step P1,
+which adds `db/modules/1001_booking_request_schema.sql`.
 
 ---
 
@@ -69,11 +102,12 @@ No business logic in this phase. Its only job is that every later step is copy-t
 **Verify:** `npm run dev` starts · `curl localhost:3000/api/health` → 200 · `npm run
 typecheck` and `npm test` both pass.
 
-## Step 2 — UI skeleton at `src/ui/`
+## Step 2 — Clinic UI skeleton at `src/ui-clinic/`
 
 - [ ] Vite + React + TypeScript
 - [ ] **Ant Design** installed, `ConfigProvider` at the root with `viVN` wired but English for now
-- [ ] React Router with an `AppLayout`: AntD `Layout` + `Sider` nav + `Content`
+- [ ] React Router with an `AppLayout`: AntD `Layout` + `Sider` nav + `Content` —
+      the internal-tool shape, which is why the patient app cannot reuse it
 - [ ] Two placeholder pages so navigation is real
 - [ ] TanStack Query provider wired (used from step 11)
 - [ ] Vite dev proxy `/api` → `localhost:3000`
@@ -116,14 +150,23 @@ deliberate `await` inside a `write()` → **lint fails**. Remove it.
 **Verify:** force a named CHECK violation → 422 with the right **code**. Force a foreign-key
 violation → 422, not a 500. Unknown SQLite error → 500 with no internals leaked.
 
-## Step 6 — Acting user (stub)
+## Step 6 — The principal (stub)
 
-- [ ] `context/actingUser.ts` reads `X-Acting-User`, verifies the row exists, attaches it
-- [ ] Refuses to load unless `ALLOW_STUB_AUTH=true`
+Not "the acting user" — a **principal**, because three kinds of caller now exist and the
+route group decides which one is required (`conventions.md` §15).
+
+- [ ] `context/principal.ts` resolves `{ kind: 'staff' | 'patient' | 'anonymous', userId? }`
+- [ ] `/api/clinic/*` requires `kind === 'staff'`, else 401
+- [ ] `/api/public/*` reads no auth header at all — anonymous is the expected principal there
+- [ ] `/api/patient/*` is **not registered**; it arrives with real auth in Phase J
+- [ ] Staff is verified against **`v_portal_access.staff_portal = 'yes'`**, not merely "an
+      `app_user` row exists" — the weaker check would let a **Departed** doctor's id still act
+- [ ] Reads `X-Acting-User`; refuses to load unless `ALLOW_STUB_AUTH=true`
 - [ ] Marked `// TODO(auth):`
 
-**Verify:** no header → 401 · unknown id → 401 · `ALLOW_STUB_AUTH` unset → the app refuses
-to boot rather than starting insecurely.
+**Verify:** clinic route, no header → 401 · clinic route, unknown id → 401 · clinic route, a
+**Departed** staff id → 401 · public route, no header → 200 · `ALLOW_STUB_AUTH` unset → the
+app refuses to boot rather than starting insecurely.
 
 ## Step 7 — Test harness
 
@@ -162,9 +205,9 @@ use case. Add a bare `new Date()` in a module → **lint fails**.
 **Verify:** add `import Database from 'better-sqlite3'` to `shared/money.ts` → lint fails.
 Remove it.
 
-## Step 11 — UI ↔ API
+## Step 11 — Clinic UI ↔ API
 
-- [ ] `src/ui/api/client.ts` — fetch wrapper unwrapping `{ error: { code, message } }`
+- [ ] `src/ui-clinic/api/client.ts` — fetch wrapper unwrapping `{ error: { code, message } }`
 - [ ] Errors surfaced through AntD `message` / `Alert`, keyed on `code`
 - [ ] Health page displaying the backend status
 
@@ -181,6 +224,8 @@ Remove it.
 
 - [ ] GitHub Actions: `typecheck`, `lint`, `test`, `e2e` on push
 - [ ] `db/build.sh` runs in CI so tests use a freshly built database
+- [ ] Jobs run **per package** — once `src/ui-patient/` exists it joins as its own matrix
+      entry, with its own `e2e` run. No job spans two packages
 
 **Verify:** push a branch, see all four jobs green.
 
@@ -217,16 +262,16 @@ gives step 15 a genuine rollback test.
 
 **16a — write**
 - [ ] `register-patient.http.ts` — zod request/response schemas, mapping to `RegisterPatientInput`
-- [ ] `people.routes.ts` registers `POST /api/patients`, unpacks deps, calls the use case
+- [ ] `people.routes.ts` registers `POST /api/clinic/patients`, unpacks deps, calls the use case
 - [ ] `register-patient.ts` imports no zod and no Fastify type
 
 **16b — read**
-- [ ] `get-patients.ts` + `get-patients.http.ts` + `GET /api/patients?q=` for the list screen
+- [ ] `get-patients.ts` + `get-patients.http.ts` + `GET /api/clinic/patients?q=` for the list screen
 
 **Verify:** `fastify.inject()` tests for 201, 400 on a bad body, 409 on a duplicate
 `national_id`, and a list response carrying ids.
 
-## Step 17 — The UI  *(2 PRs)*
+## Step 17 — The clinic UI  *(2 PRs)*
 
 **17a — list**
 - [ ] Patient list: AntD `Table` with search, via TanStack Query
@@ -272,7 +317,7 @@ can be. A second writer process would break it silently.
 
 - [ ] `modules/scheduling/get-day-sheet.ts`
 - [ ] Returns **ids alongside labels** — `v_day_sheet` omits `appointment_id`, so the view cannot back this endpoint
-- [ ] `GET /api/appointments?date=` with a zod response schema
+- [ ] `GET /api/clinic/appointments?date=` with a zod response schema
 
 **Verify:** rows each carry `appointmentId`.
 
@@ -281,7 +326,7 @@ can be. A second writer process would break it silently.
 - [ ] `modules/scheduling/book-appointment.ts` — one sync function inside `write()`
 - [ ] `modules/scheduling/domain/chair-overlap.ts` — the pure overlap predicate
 - [ ] Rule 2 → `CHAIR_DOUBLE_BOOKED`
-- [ ] `POST /api/appointments`
+- [ ] `POST /api/clinic/appointments`
 
 **Verify:** book into a free chair → 201. Book an overlapping time in the same chair →
 **409 `CHAIR_DOUBLE_BOOKED`**. The overlap predicate is unit-tested exhaustively with no
@@ -293,7 +338,7 @@ database: touching ends, containment, identical ranges, zero-length.
 - [ ] Rules 4, 5 — doctor / assistant not bookable (OnLeave, Departed)
 - [ ] Rule 6 — doctor double-booked
 
-**Verify:** one test per rule asserting its **code**. Rules ported: 6 / 87.
+**Verify:** one test per rule asserting its **code**. Rules ported: 6 / 89.
 
 ## Step 23 — Reschedule  *(rule 3)*
 
@@ -312,7 +357,7 @@ unchanged in both cases.
 fails**, because no test asserts wording. Delete the entry → this test fails and the rule
 tests still pass. That separation is the whole point.
 
-## Step 25 — Booking UI, E2E, then review
+## Step 25 — Booking UI (`ui-clinic`), E2E, then review
 
 - [ ] Day sheet: AntD `Table`, date picker, chair and doctor columns
 - [ ] Booking form: AntD `Form` + `DatePicker`/`TimePicker` + `Select`
@@ -330,13 +375,121 @@ Expanded into numbered steps only when reached — distant detail would be inven
 planned. Order follows `rule-catalogue.md`, which is also foreign-key order.
 
 - [ ] **Phase C — Clinic setup and staff** · 0 rules · chairs, chair types, service catalog, staff records. Pure CRUD on a proven stack
+- [ ] **Phase P — Patient app** · rules 88–89 · the second front end and the public API surface. Expanded below, because it is the one phase whose shape is already decided
 - [ ] **Phase D — Treatment planning** · rules 7–14 · append-only decision chain; `treatment_procedure.status` becomes a view
 - [ ] **Phase E — Clinical record** · rules 15–19 · odontogram: 52 teeth × conditions × planned work
 - [ ] **Phase F — Billing** · rules 21–34 · **blocked by `open-questions.md`**, and the first phase requiring idempotency keys (`conventions.md` §7)
 - [ ] **Phase G — Inventory** · rules 35–42 · FEFO and expiry; `quantity_on_hand` becomes a view
 - [ ] **Phase H — Payroll & commission** · rules 43–72 · the largest by far. Splits into attendance (48–52) · entries (53–61) · settlement (44–47, 62–65) · approval and locking (43, 66–71)
 - [ ] **Phase I — Notifications** · rules 73–87 · needs the outbox from `conventions.md` §3: rows written inside the causing transaction, dispatched after commit
-- [ ] **Phase J — Hardening** · real auth replacing the stub · Vietnamese by filling `vi` in `catalogue.ts` · the golden-ledger regression test · the parallel run against the clinic's current process
+- [ ] **Phase J — Hardening** · real auth replacing the stub · **Phase P2, the authenticated patient portal** · Vietnamese by filling `vi` in `catalogue.ts` · the golden-ledger regression test · the parallel run against the clinic's current process
+
+---
+
+# Phase P — Patient app
+
+Placed after C because the patient app is a second front end onto a clinic that must already
+work: services, staff and chairs have to exist before a stranger can ask for an appointment.
+
+**What ships here is the public half only.** Services, address, contact, request an
+appointment, check that request's status. No login, no records — the authenticated portal is
+Phase P2, and it is blocked twice over: by Phase E for anything to show, and by Phase J for
+an auth mechanism safe to expose on the internet. `X-Acting-User` never faces the public
+internet.
+
+**Booking is a request, not a booking.** A patient submits a preferred time; a receptionist
+reviews it and books the actual appointment through the step 21 use case, where rules 1–6
+already apply. The patient app never picks a doctor or a chair.
+
+Why a `booking_request` table rather than a chairless `appointment` row: `appointment.chair_id`
+is nullable, and its own schema comment says why that is dangerous — *"an appointment with no
+chair consumes no capacity, so a booking flow that skips it can quietly overbook the clinic"*
+(`db/modules/0301_scheduling_schema.sql`). A chairless placeholder is precisely that flow, and
+rule 2 never fires on it. A separate entity keeps `appointment` meaning *a slot actually
+reserved*.
+
+Steps are lettered so they do not collide with the unassigned 26+ numbering.
+
+## Step P1 — Schema module 10: `booking_request`
+
+The one scheduled exception to the `db/**` freeze.
+
+- [ ] `db/modules/1001_booking_request_schema.sql` — depends on modules 1, 2, 3; no cycle
+- [ ] `status` in `Pending | Booked | Declined | Withdrawn`; `appointment_id` set on booking;
+      `reference_code` unique, and the only thing the patient quotes
+- [ ] CHECKs: Booked implies an `appointment_id` · Declined implies a reason ·
+      `handled_by` and `handled_at` are set together
+- [ ] `db/modules/1009_booking_request_seed.sql` — a pending request, a booked one, a
+      declined one, and one whose phone already matches an existing `app_user`
+
+**Verify:** `db/build.sh` clean · `PRAGMA foreign_key_check` zero rows · one negative test
+per constraint, per `build-plan.md`.
+
+## Step P2 — Workflow doc
+
+- [ ] `Design/workflows/online-booking-request.md`, status `Draft`
+- [ ] R-rules: a request may only be handled once (88) · booking a request writes the
+      appointment and the request's new status in **one** transaction (89) · declining needs
+      a reason
+- [ ] E-examples: submitted then booked · submitted then declined · a second attempt to book
+      an already-booked request · a request whose phone matches an existing patient
+
+**Verify:** a reader can predict the API's behaviour from the doc alone.
+
+## Step P3 — Public API  *(2 PRs)*
+
+**P3a — reads**
+- [ ] `GET /api/public/services` — names and categories from `service_category`
+- [ ] `GET /api/public/booking-requests/:reference` — **status only**, no patient data
+
+**P3b — write**
+- [ ] `POST /api/public/booking-requests` — the only unauthenticated write in the system
+- [ ] Rate-limited, `// TODO(step-J):` for verification (`open-questions.md`)
+
+**Verify:** submit with no auth header → 201 with a reference · look the reference up → its
+status and nothing else · a wrong reference → 404, not a 403 that confirms it exists.
+
+## Step P4 — Clinic API  *(rules 88, 89)*
+
+- [ ] `GET /api/clinic/booking-requests?status=Pending` — the reception queue
+- [ ] `modules/scheduling/book-from-request.ts` — one `write()`: insert the appointment via
+      the step 21 path, then mark the request `Booked` with its `appointment_id`
+- [ ] `modules/scheduling/decline-request.ts`
+- [ ] Rule 88 → `BOOKING_REQUEST_ALREADY_HANDLED`
+- [ ] **Rollback test** (`conventions.md` §11) — this command writes twice: force a failure
+      after the appointment insert and assert **neither** the appointment nor the status change
+      persists
+
+**Verify:** booking a Pending request → 200, and the appointment carries the booking rules ·
+booking it twice → 409 `BOOKING_REQUEST_ALREADY_HANDLED` · booking into a taken chair → 409
+`CHAIR_DOUBLE_BOOKED`, and the request stays Pending.
+
+## Step P5 — `src/ui-patient/` skeleton and the public screens  *(2 PRs)*
+
+**P5a — skeleton**
+- [ ] Vite + React + TypeScript + AntD, dev port 5174, proxy `/api` → 3000
+- [ ] A **public-marketing layout — no `Sider`**. Copying `ui-clinic`'s `AppLayout` is the
+      mistake this phase exists to avoid
+- [ ] Its own copy of the fetch wrapper
+
+**P5b — screens**
+- [ ] Services · address · contact — patient requirements 2, 3, 4
+- [ ] Booking request form, and the "check my request" lookup — requirement 1
+
+**Verify:** by hand on a phone-width viewport. Stop the API → a readable error, not a blank page.
+
+## Step P6 — Clinic queue screen, E2E, then review
+
+- [ ] Pending-requests table in `ui-clinic`, with Book and Decline
+- [ ] Playwright, across both apps: submit on the patient app → appears in the clinic queue →
+      reception books it → the reference now reads Booked
+- [ ] `/code-review` **and `/security-review`** — this is the first publicly reachable surface
+- [ ] `Design/workflows/online-booking-request.md` → `Stable`
+
+**Verify:** both e2e suites green. Rules ported: 8 / 89. **Stop and walk the patient app
+through with someone who has never seen the clinic app.**
+
+---
 
 ## Domain files, and the phase that first needs each
 
@@ -354,3 +507,4 @@ Pure, dependency-free, and therefore writable at any time — none is blocked by
 | `payroll/domain/wage-resolution.ts` | 48 | Phase H |
 | `payroll/domain/commission-amount.ts` | 53–56, 61 | Phase H |
 | `payroll/domain/payroll-arithmetic.ts` | 66–69 | Phase H |
+| `scheduling/domain/request-transition.ts` | 88 | Step P4 |

@@ -1,7 +1,8 @@
 # KPX — Rule Catalogue
 
 > Every rule the database enforced procedurally, captured **before** the triggers were
-> removed. This is the specification the API implements, and the test plan for it.
+> removed, plus any rule added since that would have been a trigger had one existed.
+> This is the specification the API implements, and the test plan for it.
 >
 > Declarative constraints are **not** listed here — 176 CHECK, 108 foreign keys and 35
 > unique constraints stay in the schema and continue to be enforced by SQLite. This
@@ -101,6 +102,13 @@ could be declarative, and why each one now becomes application code. Where it re
 | 85 | `trg_notif_target_exists` (6/8) <br> *before insert on* `notification` | eight possible target tables | the inventory item this notification refers to does not exist |
 | 86 | `trg_notif_target_exists` (7/8) <br> *before insert on* `notification` | eight possible target tables | the equipment this notification refers to does not exist |
 | 87 | `trg_notif_target_exists` (8/8) <br> *before insert on* `notification` | eight possible target tables | the payroll record this notification refers to does not exist |
+| 88 | *no trigger — new with Phase P* <br> *on booking a* `booking_request` | `booking_request.status` | this booking request has already been handled |
+| 89 | *no trigger — new with Phase P* <br> *on booking a* `booking_request` | `appointment` | *atomicity, not a refusal — the appointment and the request's new status commit together* |
+
+> **Rules 88–89 never had a trigger.** Every rule above was extracted from one that existed
+> before the triggers were removed; these two arrive with the `booking_request` entity in
+> Phase P, and are listed here because this document is the API's specification, not a record
+> of what SQLite used to do.
 
 ---
 
@@ -115,7 +123,8 @@ could be declarative, and why each one now becomes application code. Where it re
 | 7 | Inventory | 7 | 8 |
 | 8 | Payroll & Commission | 20 | 30 |
 | 9 | Notifications | 5 | 15 |
-| | **total** | **56** | **87** |
+| 10 | Booking Requests | 0 | 2 |
+| | **total** | **56** | **89** |
 
 ---
 

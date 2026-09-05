@@ -2,7 +2,7 @@
 
 How to turn `core-entities/entities.md` into a working schema, one module at a time.
 
-**40 entities, 9 modules.** Module order is derived from the actual foreign keys in the
+**41 entities, 10 modules.** Module order is derived from the actual foreign keys in the
 design, not from workflow intuition — the two disagree in one place, and following
 workflow order there would force a rebuild.
 
@@ -66,8 +66,10 @@ order wins.
 | 7 | Inventory | 5 | 1, 4 |
 | 8 | Payroll & Commission | 7 | 1, 2, 3, 5, 6 |
 | 9 | Notifications | 1 | 1 |
+| 10 | Booking Requests | 1 | 1, 2, 3 |
 
 Modules 7 and 9 are off the critical path and can be built in parallel or deferred.
+Module 10 arrives with the patient web app — see `plan/checklist.md` Phase P.
 
 ---
 
@@ -237,6 +239,34 @@ Records what should be sent and to whom. **Delivery is out of scope** — a sepa
 
 ---
 
+### Module 10 — Booking Requests
+
+`BookingRequest`
+
+Added later than the other nine, with the patient web app. A stranger on the public site asks
+for a time; a receptionist reviews the request and books the real appointment.
+
+**Why this is not just an `Appointment` row.** `appointment.chair_id` is nullable so a chair
+can be assigned on the day, and module 3's own comment states the cost: *an appointment with
+no chair consumes no capacity, so a booking flow that skips it can quietly overbook the
+clinic.* A public booking flow writing chairless appointments is exactly that hazard, and the
+chair-overlap rule never fires on those rows. A request is a **request** until reception turns
+it into a reserved slot through the normal booking path, where every rule applies.
+
+**Demonstrates**
+- A request submitted by someone with no `app_user` row at all
+- A request whose phone already matches an existing patient
+- A request booked, carrying the id of the appointment it became
+- A request declined with a reason, and a second attempt to book it refused
+
+**Verify**
+- `Booked` is rejected without an `appointmentId`; `Declined` is rejected without a reason
+- `handledBy` and `handledAt` are set together or not at all
+- `referenceCode` is unique — it is the only handle the patient has
+- A booked request's `appointmentId` resolves to a real appointment with a chair
+
+---
+
 ## How to verify each module
 
 The pattern that worked on the first build, and that caught two real defects:
@@ -259,6 +289,7 @@ cascade that silently destroyed commission history.
 | Gap | Decision |
 |-----|----------|
 | Notification delivery | separate system, designed later |
+| Patient sign-in for the public app | Phase J; the public half of the app needs none |
 | Plan-level discount split across staged invoices | parked; no entity impact |
 | Clinic opening hours | not modelled — booking checks doctor and chair only |
 | Patient sign-in fields, staff auth mechanism | open; needs no new columns on `User` |

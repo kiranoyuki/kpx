@@ -22,6 +22,12 @@ Before merge: `/code-review`. On any step touching money or auth: `/security-rev
 
 ## 2. Structure — the use case is the unit
 
+**Three packages: `src/api/`, `src/ui-clinic/`, `src/ui-patient/`.** One API, two front ends
+— internal and public. The two UI packages share no code with each other by default; where
+both need the same fifty-line fetch wrapper, each keeps its own copy. A shared UI package is
+a fourth package and a deliberate decision, not a reflex. Everything below concerns
+`src/api/`.
+
 Files are named after the use case, not the module. A module never accumulates a
 `scheduling.commands.ts` that grows to forty functions.
 
@@ -126,6 +132,11 @@ atomic against other requests **in this process**. That property is what replace
 removed triggers — no mutex is needed.
 
 ### The deployment invariant this rests on
+
+**Two front ends are not two writers.** `ui-clinic` and `ui-patient` are browsers talking
+HTTP to the same API process; nothing about a second web app touches the file. The invariant
+below is about *processes writing SQLite*, and it is unchanged. Read it that way before
+concluding otherwise.
 
 ```
 Exactly one application process may write to db/kpx.db.
@@ -342,7 +353,7 @@ export const CATALOGUE = {
 } as const
 ```
 
-`Design/rule-catalogue.md` stays the **design document** — its 87 rows and the "needs to
+`Design/rule-catalogue.md` stays the **design document** — its 89 rows and the "needs to
 look at" column are the specification and the reason each rule exists. It is **not**
 machine-synced, and no test parses it. Tests that scrape prose Markdown are worse than no
 test: they fail on formatting and pass on a wrong message.
@@ -375,7 +386,7 @@ a `PATCH` on a column:
 
 | Document | Answers | Form |
 |---|---|---|
-| `Design/rule-catalogue.md` | what gets refused, in what words | 87 numbered rules + messages |
+| `Design/rule-catalogue.md` | what gets refused, in what words | 89 numbered rules + messages |
 | `Design/workflows/<name>.md` | what the arithmetic produces | R-rules + worked E-examples |
 
 ```markdown
@@ -457,8 +468,52 @@ Marked `// TODO(step-N):` naming the step that repays them. Currently open:
 | Stub auth via `X-Acting-User` header | The auth step, not yet scheduled |
 | No idempotency keys | Before Phase F accepts real payments |
 | No clinic-hours entity — only per-doctor availability | Phase B1 |
+| No patient auth — `/api/patient/*` is not registered at all | Phase J, with Phase P2 |
+| Public booking requests unverified — rate limit only, no OTP | Phase J |
 
 ## 14. Requirement changes
 
 Recorded in `Design/plan/decisions.md`: what changed, why, and which workflow doc and tests
 moved with it.
+
+## 15. The audience boundary
+
+Every route belongs to **exactly one** of three groups, and the group decides the principal.
+
+| Group | Principal | Who calls it |
+|---|---|---|
+| `/api/clinic/*` | `staff` — required | `src/ui-clinic/` |
+| `/api/public/*` | `anonymous` | `src/ui-patient/`, logged out |
+| `/api/patient/*` | `patient` — required, scoped to self | `src/ui-patient/`, logged in (Phase J) |
+
+```
+request → route group → principal resolver → plain principal → use case
+```
+
+**A use case never infers its audience from the data it reads.** It receives a principal the
+same way it receives `clock` and `ids` (§4), and it is the group that guarantees which kind
+arrived. A single handler that branches on "is this caller a patient?" halfway down is the
+shape this rule exists to prevent: it puts authorization in the middle of business logic,
+where it is invisible to review and untested by the rule tests.
+
+`staff` means **`v_portal_access.staff_portal = 'yes'`**, never "an `app_user` row exists".
+The view already encodes that a Departed or OnLeave staff member has no staff portal, and
+duplicating that condition in application code is how the two answers drift apart.
+
+### Public routes
+
+`/api/public/*` is the only unauthenticated surface, and `POST /api/public/booking-requests`
+is the only unauthenticated **write** in the system. Consequences:
+
+- Rate-limited. Not optional, and not a Phase J item.
+- Reads return the minimum that answers the question. A booking-request lookup by reference
+  returns its status; it does not return the requester's name, phone or history. A wrong
+  reference is a 404, never a 403 that confirms the reference exists.
+- No enumerable identifiers. A reference code is looked up, never guessed from a sequence.
+
+### Reads a patient makes about themselves
+
+Patient-scoped reads make a business decision — "may this person see this row?" — so §2's
+rule applies: they go through domain code, not through a `WHERE user_id = ?` bolted onto a
+query. Rules 75–78 in `rule-catalogue.md` are the same ownership predicate stated for
+notifications; Phase P2 and Phase I share one implementation of it, not two.
