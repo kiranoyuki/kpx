@@ -1,7 +1,12 @@
 import { buildApp } from './app.js'
 import { config } from './config.js'
+import { openDatabase } from '@kpx/db'
 
-const app = buildApp()
+// The one long-lived handle for this process. Opened before the app so a bad
+// DATABASE_PATH fails here, at startup, rather than on the first request.
+const sqlite = openDatabase(config.databasePath)
+
+const app = buildApp({ sqlite })
 
 async function start(): Promise<void> {
   try {
@@ -25,6 +30,10 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   } catch (err) {
     app.log.error(err)
     process.exitCode = 1
+  } finally {
+    // After the server, so no request can be mid-query. better-sqlite3 is
+    // synchronous, so this also checkpoints and removes the -wal and -shm files.
+    sqlite.close()
   }
 }
 

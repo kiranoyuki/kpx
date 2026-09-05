@@ -7,13 +7,20 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "db:ensure": "[ -d ../../db/node_modules ] || npm --prefix ../../db ci",
+    "db:build": "npm run db:ensure --silent && npm --prefix ../../db run build --silent",
+    "predev": "npm run db:build --silent",
     "dev": "tsx watch src/main.ts",
+    "prebuild": "npm run db:build --silent",
     "build": "tsc -p tsconfig.build.json",
+    "pretypecheck": "npm run db:build --silent",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
+    "pretest": "npm run db:build --silent",
     "test": "vitest run"
   },
   "dependencies": {
+    "@kpx/db": "file:../../db",
     "fastify": "5.12.3"
   },
   "devDependencies": {

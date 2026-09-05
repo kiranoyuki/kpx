@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 0 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 3 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -24,13 +24,33 @@ Layout: `src/api/`, `src/ui-clinic/` and `src/ui-patient/` alongside the existin
 
 ## Repo layout and the shared contract
 
-**Three independent packages. There is no root `package.json`.**
+**Four independent packages. There is no root `package.json`.**
 
 ```
-src/api/          package.json  package-lock.json  tsconfig.json  node_modules/
-src/ui-clinic/    package.json  package-lock.json  tsconfig.json  node_modules/
+db/               package.json  package-lock.json  tsconfig.json  node_modules/   @kpx/db
+src/api/          package.json  package-lock.json  tsconfig.json  node_modules/   @kpx/api
+src/ui-clinic/    package.json  package-lock.json  tsconfig.json  node_modules/   @kpx/ui-clinic
 src/ui-patient/   package.json  package-lock.json  tsconfig.json  node_modules/   ← Phase P
 ```
+
+**`db/` is the database layer, and the only package that knows SQLite is underneath.** It
+holds the schema's SQL modules, `build.sh` and the built `kpx.db` as it always did, and now
+also the TypeScript that opens them: `connection.ts`, `tx.ts` (step 4) and the generated
+`schema.ts`. It owns `better-sqlite3` and `kysely` as dependencies and re-exports the query
+surface, so there is exactly one copy of the driver and one `Kysely` class in the tree.
+
+```
+@kpx/api  ──depends on──▶  @kpx/db  ──▶  better-sqlite3, kysely
+```
+
+The dependency is `file:../../db`, which npm symlinks rather than copies: edits are live, no
+reinstall. Because it is a linked source package, its `dist/` must exist before a consumer
+can typecheck against it — `@kpx/api`'s `prebuild`, `pretypecheck` and `pretest` hooks build
+it, so no one has to remember.
+
+**Importing `@kpx/db` does not make the database safe to open from anywhere.** §3's
+single-writer rule is unchanged: exactly one process *writes* `kpx.db`. A second consumer may
+open it read-only; a second writer means revisiting the transaction strategy first.
 
 **Why two front ends.** Patients book and follow their own treatment on a public app;
 receptionists and staff run the clinic on an internal one. They share the API — one database,
@@ -42,8 +62,9 @@ holds rather than from their `role`.
 Not an npm workspace, deliberately. A workspace means one root lockfile, which two people —
 or two agents — working in parallel rewrite simultaneously, producing a conflict in the file
 that is worst to merge. The cost is some duplicated devDependency versions; the benefit is
-that the packages share no mutable file. That argument gets stronger with three packages, not
-weaker. When shared types are genuinely needed, add a fourth package as a deliberate decision.
+that the packages share no mutable file. That argument gets stronger with four packages, not
+weaker — `@kpx/db` is the deliberate shared package the original note reserved, and it stays
+the only one.
 
 **The two UI packages share no code by default.** The step 11 fetch wrapper is about fifty
 lines; `ui-patient` gets its own copy when Phase P arrives. Error codes travel in the response
@@ -78,10 +99,14 @@ different group behind a different principal resolver. Fixing the prefixes now c
 retrofitting them after Phase C is a churn PR touching every route file for no behaviour
 change.
 
-**Directory ownership.** `src/api/**`, `src/ui-clinic/**` and `src/ui-patient/**` are owned
-separately and never edited together in one PR. `Design/**` and `db/**` are owned by neither
-and stay frozen during implementation work — with exactly one scheduled exception, step P1,
-which adds `db/modules/1001_booking_request_schema.sql`.
+**Directory ownership.** `db/**`, `src/api/**`, `src/ui-clinic/**` and `src/ui-patient/**`
+are owned separately and never edited together in one PR — except where a change to `@kpx/db`'s
+exported surface requires its consumer to move with it, which is one concern and therefore one
+PR. `Design/**` is owned by none of them.
+
+**`db/modules/**` — the schema itself — stays frozen during implementation work**, with one
+scheduled exception: step P1, which adds `db/modules/1001_booking_request_schema.sql`. The
+freeze is on the SQL, not on the package around it.
 
 ---
 
@@ -91,35 +116,35 @@ No business logic in this phase. Its only job is that every later step is copy-t
 
 ## Step 1 — Backend skeleton at `src/api/`
 
-- [ ] `package.json`, `tsconfig.json`, `.env.example`, `eslint.config.js` — all inside `src/api/`, none at the repo root
-- [ ] Fastify, TypeScript, Vitest, tsx installed
-- [ ] `src/app.ts` exports `buildApp()` returning a `FastifyInstance` — **never listens**, so tests can import it
-- [ ] `src/main.ts` boots, listens on 3000, handles graceful shutdown
-- [ ] `src/config.ts` parses and validates env once, typed
-- [ ] `GET /api/health` → `{ status: "ok" }`
-- [ ] Scripts: `dev`, `build`, `typecheck`, `lint`, `test`
+- [x] `package.json`, `tsconfig.json`, `.env.example`, `eslint.config.js` — all inside `src/api/`, none at the repo root
+- [x] Fastify, TypeScript, Vitest, tsx installed
+- [x] `src/app.ts` exports `buildApp()` returning a `FastifyInstance` — **never listens**, so tests can import it
+- [x] `src/main.ts` boots, listens on 3000, handles graceful shutdown
+- [x] `src/config.ts` parses and validates env once, typed
+- [x] `GET /api/health` → `{ status: "ok" }`
+- [x] Scripts: `dev`, `build`, `typecheck`, `lint`, `test`
 
 **Verify:** `npm run dev` starts · `curl localhost:3000/api/health` → 200 · `npm run
 typecheck` and `npm test` both pass.
 
 ## Step 2 — Clinic UI skeleton at `src/ui-clinic/`
 
-- [ ] Vite + React + TypeScript
-- [ ] **Ant Design** installed, `ConfigProvider` at the root with `viVN` wired but English for now
-- [ ] React Router with an `AppLayout`: AntD `Layout` + `Sider` nav + `Content` —
+- [x] Vite + React + TypeScript
+- [x] **Ant Design** installed, `ConfigProvider` at the root with `viVN` wired but English for now
+- [x] React Router with an `AppLayout`: AntD `Layout` + `Sider` nav + `Content` —
       the internal-tool shape, which is why the patient app cannot reuse it
-- [ ] Two placeholder pages so navigation is real
-- [ ] TanStack Query provider wired (used from step 11)
-- [ ] Vite dev proxy `/api` → `localhost:3000`
+- [x] Two placeholder pages so navigation is real
+- [x] TanStack Query provider wired (used from step 11)
+- [x] Vite dev proxy `/api` → `localhost:3000`
 
 **Verify:** `npm run dev` serves a styled page, nav switches routes, no console errors.
 
 ## Step 3 — Database connection
 
-- [ ] `db/connection.ts` — one long-lived `better-sqlite3` handle to `db/kpx.db`
-- [ ] Pragmas set once at open: `foreign_keys = ON`, `journal_mode = WAL`, `busy_timeout = 5000`, `synchronous = NORMAL`
-- [ ] `kysely-codegen` script → `db/schema.d.ts`, committed
-- [ ] `/api/health` extended to report `foreignKeys` and `journalMode`
+- [x] `db/connection.ts` — one long-lived `better-sqlite3` handle to `db/kpx.db`, exported from `@kpx/db`
+- [x] Pragmas set once at open: `foreign_keys = ON`, `journal_mode = WAL`, `busy_timeout = 5000`, `synchronous = NORMAL`
+- [x] `kysely-codegen` script → `db/schema.ts`, committed; the build emits `dist/schema.d.ts`
+- [x] `/api/health` extended to report `foreignKeys` and `journalMode`
 
 **Verify:** `/api/health` → `{ status:"ok", foreignKeys:true, journalMode:"wal" }`. Foreign keys
 reporting `false` here means a third of enforcement is silently off.
