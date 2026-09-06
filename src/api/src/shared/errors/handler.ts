@@ -22,6 +22,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { AppError, type ErrorResponse } from './AppError.js'
+import { translateSqliteError } from './translate.js'
 
 /** Reported when an unexpected throw reaches the handler. */
 export const INTERNAL_ERROR_CODE = 'INTERNAL'
@@ -58,6 +59,15 @@ export function registerErrorHandler(app: FastifyInstance): void {
       const message = error instanceof Error ? error.message : 'Request validation failed'
       request.log.warn({ err: error }, 'request failed validation')
       void reply.status(400).send({ error: { code: VALIDATION_FAILED_CODE, message } })
+      return
+    }
+
+    // A declarative constraint the schema still enforces (step 5b). Recognised
+    // ones are refusals the client can act on; anything else falls through.
+    const translated = translateSqliteError(error)
+    if (translated !== undefined) {
+      request.log.warn({ err: error, code: translated.code }, 'constraint refused the write')
+      void reply.status(translated.status).send(translated.toResponse())
       return
     }
 
