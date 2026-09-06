@@ -267,9 +267,36 @@ the server's local zone, which must never be read.
 
 | Type | Example | Stored as | Converted? |
 |---|---|---|---|
-| **Instant** — an exact moment | `2026-09-04T03:00:00Z` | ISO-8601 UTC text | yes, to display |
+| **Instant** — an exact moment | `2026-09-04T10:00:00+07:00` | *not stored* — the wire form | it **is** the conversion |
+| **ClinicDateTime** — the stored moment | `2026-09-04 10:00:00` | naive clinic wall time | to/from Instant only |
 | **LocalDate** — a calendar day | `2026-09-04` | `YYYY-MM-DD` text | **never** |
 | **LocalTime** — a time of day | `08:30` | `HH:MM` text | **never** |
+
+### Timestamps are stored in clinic wall time, and transmitted with an offset
+
+Decided 2026-09-06 (`decisions.md`). Every timestamp column holds naive clinic time,
+because that is what the data holds and what 34 `date()` / `time()` expressions across the
+views assume — SQLite converts any offset-bearing timestamp to UTC, so storing `+07:00`
+would make `time()` report `03:00:00` and put every late appointment on the wrong day sheet.
+
+Nothing is lost: Vietnam is UTC+7 all year and has never observed DST, so the moment is
+always recoverable. A test asserts that against `Intl` in four months of the year and fails
+if it ever stops being true.
+
+**The API never emits or accepts a naive datetime.** Everything on the wire carries the
+offset — `2026-09-04T10:00:00+07:00` — which is a true moment *and* reads as clinic time.
+That is the one string a client abroad cannot misread as its own local time. A patient in
+Sydney books from the clinic's timetable, shown in clinic time, and their browser still
+resolves the moment correctly.
+
+**Never `datetime('now')`.** It returns UTC, and `datetime('now','localtime')` returns the
+*server's* zone — a third wrong answer. 17 columns carry a `DEFAULT (datetime('now'))` that
+would write UTC into a column the seed filled with clinic time. The API supplies every
+timestamp itself, from `clock.now()`, converted in `shared/time.ts`. The defaults are a
+trap, not a fallback (`open-questions.md`).
+
+**A client-supplied timestamp is never an audit field.** A client may say which slot it
+wants — that is intent. When something happened is the server's answer, always.
 
 These are not interchangeable, and conflating them is the most likely time bug in this
 system. `new Date('2026-09-04')` parses as UTC midnight, which is **07:00 on the 4th** in

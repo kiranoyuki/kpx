@@ -27,6 +27,18 @@ discount. Correct?
 §18 currently forbids stacking — a patient may use a voucher code **or** an approved
 `DiscountProposal`, never both. Confirm, or state the precedence.
 
+## Blocking nothing yet, but a live landmine
+
+**10. The 17 `DEFAULT (datetime('now'))` columns write UTC.**
+`datetime('now')` is UTC; the seed wrote clinic time. A row that lets the default fire is
+seven hours off in a column whose other rows are not, and nothing errors. `conventions.md`
+§4 already requires the API to supply every timestamp from the injected clock, so this only
+bites if that rule is broken — but a wrong default is a poor last line of defence.
+
+Options: leave them and rely on the rule; or change them to `datetime('now','+7 hours')`,
+which is deterministic regardless of the server's zone. The second touches
+`db/modules/**`, frozen outside step P1, so it needs a decision rather than a drive-by fix.
+
 ## Blocking Phase P — Patient app
 
 **6. Deployment origin.**

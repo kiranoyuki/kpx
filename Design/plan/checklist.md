@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 7 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 9 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -200,8 +200,8 @@ route group decides which one is required (`conventions.md` §15).
 
 - [x] `test/helpers/db.ts` builds a fresh seeded database per test file
 - [x] `test/helpers/api.ts` wraps `buildApp()` + `fastify.inject()`
-- [ ] Helpers inject `FixedClock` and `SeqIds` by default — **step 9 defines them**, so this
-      box is ticked there rather than here
+- [x] Helpers inject `FixedClock` and `SeqIds` by default — defined in step 9, wired into
+      `createTestApi` there
 - [x] Teardown removes temp files
 
 **Verify:** two test files each insert the same id and both pass — proving isolation.
@@ -218,12 +218,12 @@ route group decides which one is required (`conventions.md` §15).
 
 ## Step 9 — `shared/clock.ts` and `shared/ids.ts`
 
-- [ ] `Clock` interface; `SystemClock` for production, `FixedClock(iso)` for tests
-- [ ] `shared/time.ts` — `Instant` / `LocalDate` / `LocalTime` and the `Asia/Ho_Chi_Minh` constant (`conventions.md` §4)
-- [ ] ESLint ban on constructing a `Date` from a `YYYY-MM-DD` string outside `time.ts`
-- [ ] `Ids` interface; `UuidIds` for production, `SeqIds(prefix)` for tests
-- [ ] Resolved by Fastify, **passed to use cases as plain deps** — no `modules/` file imports a Fastify type (`conventions.md` §2)
-- [ ] ESLint rule banning `new Date()` and `Date.now()` inside `modules/` and `shared/` — except in `clock.ts`
+- [x] `Clock` interface; `SystemClock` for production, `FixedClock(iso)` for tests
+- [x] `shared/time.ts` — `Instant` / `LocalDate` / `LocalTime` and the `Asia/Ho_Chi_Minh` constant (`conventions.md` §4)
+- [x] ESLint ban on constructing a `Date` from a `YYYY-MM-DD` string outside `time.ts`
+- [x] `Ids` interface; `UuidIds` for production, `SeqIds(prefix)` for tests
+- [x] Resolved by Fastify, **passed to use cases as plain deps** — no `modules/` file imports a Fastify type (`conventions.md` §2)
+- [x] ESLint rule banning `new Date()` and `Date.now()` inside `modules/` and `shared/` — except in `clock.ts`
 
 **Verify:** a test with `FixedClock('2026-09-04T10:00:00Z')` reads that exact time from a
 use case. Add a bare `new Date()` in a module → **lint fails**.

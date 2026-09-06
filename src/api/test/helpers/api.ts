@@ -13,6 +13,8 @@
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify'
 
 import { buildApp } from '../../src/app.js'
+import { FixedClock, type Clock } from '../../src/shared/clock.js'
+import { SeqIds, type Ids } from '../../src/shared/ids.js'
 import { ACTING_USER_HEADER } from '../../src/context/principal.js'
 import type { RouteGroups } from '../../src/routes.js'
 import { createTestDatabase, type TestDatabase, type TestDatabaseOptions } from './db.js'
@@ -23,6 +25,8 @@ export type TestInjectOptions = InjectOptions & { as?: string }
 export interface TestApi {
   app: FastifyInstance
   db: TestDatabase
+  clock: Clock
+  ids: Ids
   /** A seeded id that reaches the staff portal. */
   staffId: string
   /** A seeded id that does not — departed, but still a patient. */
@@ -31,6 +35,13 @@ export interface TestApi {
   close: () => Promise<void>
 }
 
+/**
+ * The moment every test runs at unless it says otherwise. A fixed default means
+ * an assertion can name a date instead of recomputing one, and a rule that
+ * depends on "now" fails the same way on every machine and every day.
+ */
+export const TEST_NOW = '2026-09-04T10:00:00Z'
+
 export interface TestApiOptions extends TestDatabaseOptions {
   /** Routes under test, by audience. Modules supply these from step 16. */
   routes?: RouteGroups
@@ -38,6 +49,10 @@ export interface TestApiOptions extends TestDatabaseOptions {
   allowStubAuth?: boolean
   /** Default false here — pass true when debugging a single test. */
   logger?: boolean
+  /** Defaults to FixedClock(TEST_NOW). */
+  clock?: Clock
+  /** Defaults to SeqIds('test'). */
+  ids?: Ids
 }
 
 function idFromView(db: TestDatabase, where: string): string {
@@ -52,16 +67,22 @@ function idFromView(db: TestDatabase, where: string): string {
 
 export function createTestApi(options: TestApiOptions = {}): TestApi {
   const db = createTestDatabase(options)
+  const clock = options.clock ?? FixedClock(TEST_NOW)
+  const ids = options.ids ?? SeqIds('test')
   const app = buildApp({
     sqlite: db.sqlite,
     allowStubAuth: options.allowStubAuth ?? true,
     routes: options.routes,
     logger: options.logger ?? false,
+    clock,
+    ids,
   })
 
   return {
     app,
     db,
+    clock,
+    ids,
     staffId: idFromView(db, "staff_portal = 'yes'"),
     departedStaffId: idFromView(db, "employment = 'Departed'"),
     inject: async ({ as, headers, ...rest }: TestInjectOptions) =>

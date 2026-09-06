@@ -44,3 +44,42 @@ export const noAwaitInTransaction = {
     },
   ],
 }
+
+/**
+ * ## no-ambient-time
+ *
+ * `conventions.md` §4: business logic never reaches for the current time, it
+ * receives it. A bare `new Date()` or `Date.now()` makes a rule untestable —
+ * "cancellation is inside the 24-hour window" can then only be checked by
+ * recomputing the answer the same way the code does, which tests nothing.
+ *
+ * `shared/clock.ts` is the one exception, and is exempted where this is applied.
+ */
+const AMBIENT_TIME_MESSAGE =
+  'No ambient time here (conventions.md §4). Take a Clock as a dependency and call ' +
+  'clock.now(); shared/clock.ts is the only module allowed to read the machine clock.'
+
+export const noAmbientTime = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: 'NewExpression[callee.name="Date"][arguments.length=0]',
+      message: AMBIENT_TIME_MESSAGE,
+    },
+    {
+      selector: 'CallExpression[callee.object.name="Date"][callee.property.name="now"]',
+      message: AMBIENT_TIME_MESSAGE,
+    },
+    {
+      // new Date('2026-08-20') parses as UTC midnight, which is 07:00 the same
+      // day in Ho Chi Minh City — so a pay period, an expiry or a day sheet
+      // computed that way silently shifts by a day for part of every day.
+      selector: 'NewExpression[callee.name="Date"] > Literal[value=/^\\d{4}-\\d{2}-\\d{2}$/]',
+      message:
+        'Do not build a Date from a calendar day (conventions.md §4). It parses as UTC ' +
+        'midnight, which is 07:00 the same day in the clinic, so the answer is a day out ' +
+        'for part of every day. Use LocalDate from shared/time.ts, which never round-trips ' +
+        'through a Date.',
+    },
+  ],
+}

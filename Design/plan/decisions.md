@@ -5,6 +5,47 @@ What changed, why, and which workflow docs and tests moved with it
 
 ---
 
+## 2026-09-06 — Timestamps are stored in clinic wall time, not UTC
+
+**Was:** `conventions.md` §4 said an Instant is stored as ISO-8601 UTC text. The schema and
+seed, written earlier, store naive clinic wall time and never mention a timezone. The two
+documents disagreed and nobody had noticed, because no code had written a timestamp yet.
+
+**Now:** storage is naive clinic time — `2026-08-20 10:00:00`. The API transmits Instants
+carrying the offset — `2026-08-20T10:00:00+07:00`. `shared/time.ts` is the only place the
+two meet, and the types make mixing them a compile error.
+
+**Why.** The prompt was foreign patients: someone in Sydney booking in advance. The
+realisation is that a foreign patient still books a *clinic* slot — the appointment happens
+at 10:00 in Ho Chi Minh City wherever they are — so their timezone is a display concern, not
+a storage one. Availability is shown in clinic time to everyone.
+
+Storage then follows the data: SQLite converts any offset-bearing timestamp to UTC, so
+`time('2026-08-20T10:00:00+07:00')` is `03:00:00`. Storing offsets would silently break 34
+`date()`/`time()` expressions and put every appointment after 17:00 local on the previous
+day's sheet. Vietnam is UTC+7 all year with no DST, so naive local text loses nothing — the
+moment is always recoverable, and a test fails if that ever stops being true.
+
+The offset on the wire is what makes the foreign case work with no per-user logic: the
+string is unambiguous to a machine and still reads as clinic time to a human.
+
+**A bug this surfaced.** 17 columns carry `DEFAULT (datetime('now'))`, which writes **UTC** —
+while the seed wrote clinic time. The same column would hold two zones depending on whether
+the API supplied a value. Nothing would error; the audit log would just be seven hours wrong
+for some rows. §4 already required the API to supply timestamps from an injected clock, so
+the rule stands; the defaults are a trap behind it. Raised in `open-questions.md` because
+`db/modules/**` is frozen outside step P1.
+
+**Consequences**
+
+- `shared/time.ts` carries four branded types. Conflating them is a compile error rather than
+  a seven-hour offset.
+- Reminders (Phase I) must be computed on the Instant, not the stored string, or a foreign
+  patient's reminder lands seven hours out. The type split is what will force that.
+- A second clinic in another timezone would need a migration. Accepted.
+
+---
+
 ## 2026-09-05 — Authentication is scheduled between the clinic app and the patient app
 
 **Was:** real authentication lived in Phase J (Hardening), at the end. The stub —

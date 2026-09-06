@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createTestApi, type TestApi } from './api.js'
+import { FixedClock } from '../../src/shared/clock.js'
+import { SeqIds } from '../../src/shared/ids.js'
+import { clinicDateOf, toStored } from '../../src/shared/time.js'
+import { createTestApi, TEST_NOW, type TestApi } from './api.js'
 import { createTestDatabase, type TestDatabase } from './db.js'
 
 const open: (TestDatabase | TestApi)[] = []
@@ -134,5 +137,65 @@ describe('createTestApi', () => {
 
     expect(departed.statusCode).toBe(401)
     expect(anonymous.statusCode).toBe(401)
+  })
+})
+
+/**
+ * Step 9's Verify. Until step 15 there is no use case, but the path is the one a
+ * use case will take: Fastify resolves the dependency, the route unpacks it, and
+ * the handler works with plain values — no Fastify type below this line.
+ */
+describe('injected clock and ids', () => {
+  it('a handler reads exactly the moment the test fixed', async () => {
+    const api = track(
+      createTestApi({
+        clock: FixedClock('2026-09-04T10:00:00Z'),
+        routes: {
+          clinic: [
+            (scope) => {
+              const { clock } = scope
+              scope.get('/now', () => ({ now: clock.now(), stored: toStored(clock.now()) }))
+            },
+          ],
+        },
+      }),
+    )
+
+    const response = await api.inject({ method: 'GET', url: '/api/clinic/now', as: api.staffId })
+
+    expect(response.json()).toEqual({
+      now: '2026-09-04T10:00:00.000Z',
+      // 10:00 UTC is 17:00 at the clinic — the conversion happens once, here.
+      stored: '2026-09-04 17:00:00',
+    })
+  })
+
+  it('ids are sequential, so a test can name the row it expects', async () => {
+    const api = track(
+      createTestApi({
+        ids: SeqIds('appt'),
+        routes: {
+          clinic: [
+            (scope) => {
+              const { ids } = scope
+              scope.get('/id', () => ({ id: ids.next() }))
+            },
+          ],
+        },
+      }),
+    )
+
+    expect((await api.inject({ method: 'GET', url: '/api/clinic/id', as: api.staffId })).json())
+      .toEqual({ id: 'appt-1' })
+    expect((await api.inject({ method: 'GET', url: '/api/clinic/id', as: api.staffId })).json())
+      .toEqual({ id: 'appt-2' })
+  })
+
+  it('defaults to a fixed clock, so no test depends on the day it runs', () => {
+    const api = track(createTestApi())
+
+    expect(api.clock.now()).toBe(new Date(TEST_NOW).toISOString())
+    expect(clinicDateOf(api.clock.now())).toBe('2026-09-04')
+    expect(api.ids.next()).toBe('test-1')
   })
 })

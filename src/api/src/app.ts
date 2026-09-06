@@ -3,6 +3,8 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { readPragmas, type SqliteDatabase } from '@kpx/db'
 
 import { assertStubAuthAllowed } from './context/principal.js'
+import { SystemClock, type Clock } from './shared/clock.js'
+import { UuidIds, type Ids } from './shared/ids.js'
 import { registerRouteGroups, type RouteGroups } from './routes.js'
 import { registerErrorHandler } from './shared/errors/handler.js'
 
@@ -24,6 +26,22 @@ export interface AppDeps {
    * reads.
    */
   logger?: boolean
+  /** Defaults to SystemClock. Tests pass FixedClock (`conventions.md` §4). */
+  clock?: Clock
+  /** Defaults to UuidIds. Tests pass SeqIds. */
+  ids?: Ids
+}
+
+/**
+ * Resolved by Fastify and unpacked by each routes file, which then passes them
+ * to the use case as plain values. No file under `modules/` imports a Fastify
+ * type (`conventions.md` §2).
+ */
+declare module 'fastify' {
+  interface FastifyInstance {
+    clock: Clock
+    ids: Ids
+  }
 }
 
 // Builds a fully configured Fastify instance but never calls listen() — that
@@ -35,6 +53,9 @@ export function buildApp(deps: AppDeps): FastifyInstance {
   // Before anything else: a server that starts while trusting a header anyone
   // can set is worse than one that does not start.
   assertStubAuthAllowed(deps.allowStubAuth)
+
+  app.decorate('clock', deps.clock ?? SystemClock)
+  app.decorate('ids', deps.ids ?? UuidIds)
 
   // Registered first, so nothing added later can escape it.
   registerErrorHandler(app)
