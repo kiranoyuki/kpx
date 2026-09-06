@@ -187,12 +187,14 @@ route group decides which one is required (`conventions.md` §15).
 - [x] `/api/patient/*` is **not registered**; it arrives with real auth in Phase J
 - [x] Staff is verified against **`v_portal_access.staff_portal = 'yes'`**, not merely "an
       `app_user` row exists" — the weaker check would let a **Departed** doctor's id still act
-- [x] Reads `X-Acting-User`; refuses to load unless `ALLOW_STUB_AUTH=true`
+- [x] Reads `X-Acting-User`; refuses to load unless `ALLOW_STUB_AUTH` allows it — set
+      explicitly it means exactly that, unset it is on outside production and **off in
+      production** (`decisions.md`, 2026-09-05)
 - [x] Marked `// TODO(auth):`
 
 **Verify:** clinic route, no header → 401 · clinic route, unknown id → 401 · clinic route, a
-**Departed** staff id → 401 · public route, no header → 200 · `ALLOW_STUB_AUTH` unset → the
-app refuses to boot rather than starting insecurely.
+**Departed** staff id → 401 · public route, no header → 200 · `NODE_ENV=production` with
+`ALLOW_STUB_AUTH` unset → the app refuses to boot rather than starting insecurely.
 
 ## Step 7 — Test harness
 
@@ -401,6 +403,7 @@ Expanded into numbered steps only when reached — distant detail would be inven
 planned. Order follows `rule-catalogue.md`, which is also foreign-key order.
 
 - [ ] **Phase C — Clinic setup and staff** · 0 rules · chairs, chair types, service catalog, staff records. Pure CRUD on a proven stack
+- [ ] **Auth** · real authentication replacing the stub · scheduled here by `decisions.md`: after the clinic app works, before any patient UI. The clinic app tolerates a header stub because it is internal; the patient portal cannot, because it is not
 - [ ] **Phase P — Patient app** · rules 88–89 · the second front end and the public API surface. Expanded below, because it is the one phase whose shape is already decided
 - [ ] **Phase D — Treatment planning** · rules 7–14 · append-only decision chain; `treatment_procedure.status` becomes a view
 - [ ] **Phase E — Clinical record** · rules 15–19 · odontogram: 52 teeth × conditions × planned work
@@ -408,7 +411,7 @@ planned. Order follows `rule-catalogue.md`, which is also foreign-key order.
 - [ ] **Phase G — Inventory** · rules 35–42 · FEFO and expiry; `quantity_on_hand` becomes a view
 - [ ] **Phase H — Payroll & commission** · rules 43–72 · the largest by far. Splits into attendance (48–52) · entries (53–61) · settlement (44–47, 62–65) · approval and locking (43, 66–71)
 - [ ] **Phase I — Notifications** · rules 73–87 · needs the outbox from `conventions.md` §3: rows written inside the causing transaction, dispatched after commit
-- [ ] **Phase J — Hardening** · real auth replacing the stub · **Phase P2, the authenticated patient portal** · Vietnamese by filling `vi` in `catalogue.ts` · the golden-ledger regression test · the parallel run against the clinic's current process
+- [ ] **Phase J — Hardening** · **Phase P2, the authenticated patient portal** · Vietnamese by filling `vi` in `catalogue.ts` · the golden-ledger regression test · the parallel run against the clinic's current process
 
 ---
 
