@@ -40,6 +40,7 @@ export const CATALOGUE = {
   VALIDATION_FAILED: { rule: null, en: 'the request could not be read', vi: null },
   NOT_FOUND: { rule: null, en: 'no such route', vi: null },
   INTERNAL: { rule: null, en: 'internal server error', vi: null },
+  STAFF_AUTH_REQUIRED: { rule: null, en: 'this endpoint is for clinic staff', vi: null },
 
   // ---- The 65 named ck_* constraints, in schema module order ----------------
   /** `ck_user_cccd_12_digits` */

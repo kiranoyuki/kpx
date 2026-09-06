@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 5 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 6 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -181,14 +181,14 @@ violation → 422, not a 500. Unknown SQLite error → 500 with no internals lea
 Not "the acting user" — a **principal**, because three kinds of caller now exist and the
 route group decides which one is required (`conventions.md` §15).
 
-- [ ] `context/principal.ts` resolves `{ kind: 'staff' | 'patient' | 'anonymous', userId? }`
-- [ ] `/api/clinic/*` requires `kind === 'staff'`, else 401
-- [ ] `/api/public/*` reads no auth header at all — anonymous is the expected principal there
-- [ ] `/api/patient/*` is **not registered**; it arrives with real auth in Phase J
-- [ ] Staff is verified against **`v_portal_access.staff_portal = 'yes'`**, not merely "an
+- [x] `context/principal.ts` resolves `{ kind: 'staff' | 'patient' | 'anonymous', userId? }`
+- [x] `/api/clinic/*` requires `kind === 'staff'`, else 401
+- [x] `/api/public/*` reads no auth header at all — anonymous is the expected principal there
+- [x] `/api/patient/*` is **not registered**; it arrives with real auth in Phase J
+- [x] Staff is verified against **`v_portal_access.staff_portal = 'yes'`**, not merely "an
       `app_user` row exists" — the weaker check would let a **Departed** doctor's id still act
-- [ ] Reads `X-Acting-User`; refuses to load unless `ALLOW_STUB_AUTH=true`
-- [ ] Marked `// TODO(auth):`
+- [x] Reads `X-Acting-User`; refuses to load unless `ALLOW_STUB_AUTH=true`
+- [x] Marked `// TODO(auth):`
 
 **Verify:** clinic route, no header → 401 · clinic route, unknown id → 401 · clinic route, a
 **Departed** staff id → 401 · public route, no header → 200 · `ALLOW_STUB_AUTH` unset → the

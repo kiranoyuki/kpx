@@ -11,6 +11,8 @@ export interface Config {
   port: number
   host: string
   databasePath: string
+  /** TODO(auth): removed in Phase J, with the stub it guards. */
+  allowStubAuth: boolean
 }
 
 /**
@@ -44,12 +46,18 @@ function parseDatabasePath(raw: string | undefined): string {
   return raw
 }
 
+/** Strictly true/false: an unset or misspelled value must not read as enabled. */
+function parseAllowStubAuth(raw: string | undefined): boolean {
+  return raw === 'true'
+}
+
 function parseConfig(env: NodeJS.ProcessEnv): Config {
   return {
     nodeEnv: parseNodeEnv(env.NODE_ENV),
     port: parsePort(env.PORT),
     host: env.HOST ?? '0.0.0.0',
     databasePath: parseDatabasePath(env.DATABASE_PATH),
+    allowStubAuth: parseAllowStubAuth(env.ALLOW_STUB_AUTH),
   }
 }
 

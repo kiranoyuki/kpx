@@ -6,7 +6,7 @@ import { openDatabase } from '@kpx/db'
 // DATABASE_PATH fails here, at startup, rather than on the first request.
 const sqlite = openDatabase(config.databasePath)
 
-const app = buildApp({ sqlite })
+const app = buildApp({ sqlite, allowStubAuth: config.allowStubAuth })
 
 async function start(): Promise<void> {
   try {
