@@ -198,10 +198,11 @@ route group decides which one is required (`conventions.md` §15).
 
 ## Step 7 — Test harness
 
-- [ ] `test/helpers/db.ts` builds a fresh seeded database per test file
-- [ ] `test/helpers/api.ts` wraps `buildApp()` + `fastify.inject()`
-- [ ] Helpers inject `FixedClock` and `SeqIds` by default (step 9)
-- [ ] Teardown removes temp files
+- [x] `test/helpers/db.ts` builds a fresh seeded database per test file
+- [x] `test/helpers/api.ts` wraps `buildApp()` + `fastify.inject()`
+- [ ] Helpers inject `FixedClock` and `SeqIds` by default — **step 9 defines them**, so this
+      box is ticked there rather than here
+- [x] Teardown removes temp files
 
 **Verify:** two test files each insert the same id and both pass — proving isolation.
 
