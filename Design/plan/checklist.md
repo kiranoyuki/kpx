@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 6 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 7 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -208,9 +208,11 @@ route group decides which one is required (`conventions.md` §15).
 
 ## Step 8 — `shared/money.ts`
 
-- [ ] Integer đồng: add, subtract, `applyBasisPoints`, named rounding policies, format
-- [ ] **No floating-point rates** — 15% is `1500`, not `0.15` (`conventions.md` §5)
-- [ ] Table-driven tests including rounding and negative (credit) amounts
+- [x] Integer đồng: add, subtract, `applyBasisPoints`, named rounding policies, format
+- [x] **No floating-point rates** — 15% is `1500`, not `0.15` (`conventions.md` §5)
+- [x] Table-driven tests including rounding and negative (credit) amounts
+- [x] `allocate()` — the §5 discount policy: pro-rata, rounded down, remainder on the last
+      line, so the shares sum exactly to the whole
 
 **Verify:** `npm test` green, runtime in milliseconds, no database touched.
 

@@ -18,6 +18,11 @@ The design assumes: allocate the invoice discount pro-rata by line value, round 
 whole đồng, put the remainder on the **last** line, so the shares sum exactly to the invoice
 discount. Correct?
 
+> Implemented as described in `shared/money.ts` `allocate()`, because Phase F cannot be
+> written without *some* policy and this is the one §5 states. Changing it is changing one
+> function and its table of examples. Still needs confirming — it decides which line a
+> stray đồng lands on, on a legal invoice.
+
 **3. Voucher plus approved discount proposal.**
 §18 currently forbids stacking — a patient may use a voucher code **or** an approved
 `DiscountProposal`, never both. Confirm, or state the precedence.
