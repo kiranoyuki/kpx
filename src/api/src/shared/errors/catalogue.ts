@@ -173,6 +173,12 @@ export const CATALOGUE = {
   NOTIFICATION_TO_SELF: { rule: null, en: 'a notification cannot be sent to its own sender', vi: null },
   /** `ck_notif_read_after_sent` */
   NOTIFICATION_READ_BEFORE_SENT: { rule: null, en: 'a notification cannot be read before it was sent', vi: null },
+  /** `ck_hours_one_mode` */
+  CLINIC_HOURS_NEEDS_ONE_MODE: { rule: null, en: 'clinic hours are either a recurring weekday or a one-off date, never both', vi: null },
+  /** `ck_hours_open_has_window` */
+  CLINIC_HOURS_WINDOW_STATE_MISMATCH: { rule: null, en: 'an open day states when it opens and closes; a closed one states neither', vi: null },
+  /** `ck_hours_closes_after_opens` */
+  CLINIC_HOURS_INVERTED: { rule: null, en: 'the clinic cannot close before it opens', vi: null },
 } as const satisfies Record<string, CatalogueEntry>
 
 export type ErrorCode = keyof typeof CATALOGUE

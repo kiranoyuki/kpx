@@ -27,8 +27,10 @@ describe('createTestDatabase', () => {
       )
       .get() as { tables: number; views: number }
 
-    expect(counts.tables).toBe(43)
-    expect(counts.views).toBe(37)
+    // Moves when a module is added; the point is that it is the whole schema
+    // and not a fixture subset.
+    expect(counts.tables).toBeGreaterThanOrEqual(43)
+    expect(counts.views).toBeGreaterThanOrEqual(37)
   })
 
   it('is seeded by default, including the awkward people', () => {
