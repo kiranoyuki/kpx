@@ -22,6 +22,8 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 
 import { AppError, type ErrorResponse } from './AppError.js'
+import { messageFor } from './catalogue.js'
+import { CONSTRAINT_TO_CODE } from './constraint-map.js'
 import { translateSqliteError } from './translate.js'
 
 /** Reported when an unexpected throw reaches the handler. */
@@ -32,7 +34,16 @@ export const NOT_FOUND_CODE = 'NOT_FOUND'
 export const VALIDATION_FAILED_CODE = 'VALIDATION_FAILED'
 
 const internalResponse: ErrorResponse = {
-  error: { code: INTERNAL_ERROR_CODE, message: 'Internal server error' },
+  error: { code: INTERNAL_ERROR_CODE, message: messageFor(INTERNAL_ERROR_CODE) ?? 'internal server error' },
+}
+
+/**
+ * The catalogue is authoritative for wording (`conventions.md` §8). An error's
+ * own `message` is only a fallback, for a code not yet catalogued — which the
+ * per-module coverage test is there to stop happening.
+ */
+function wordingFor(error: AppError): string {
+  return messageFor(error.code) ?? error.message
 }
 
 /** Fastify tags its own schema failures; they are the client's fault, not ours. */
@@ -51,7 +62,7 @@ export function registerErrorHandler(app: FastifyInstance): void {
       // Deliberate: the code and status are the contract. Logged at warn —
       // it is a refused request, not a fault.
       request.log.warn({ err: error, code: error.code }, 'request refused')
-      void reply.status(error.status).send(error.toResponse())
+      void reply.status(error.status).send(error.toResponse(wordingFor(error)))
       return
     }
 
@@ -64,10 +75,10 @@ export function registerErrorHandler(app: FastifyInstance): void {
 
     // A declarative constraint the schema still enforces (step 5b). Recognised
     // ones are refusals the client can act on; anything else falls through.
-    const translated = translateSqliteError(error)
+    const translated = translateSqliteError(error, CONSTRAINT_TO_CODE)
     if (translated !== undefined) {
       request.log.warn({ err: error, code: translated.code }, 'constraint refused the write')
-      void reply.status(translated.status).send(translated.toResponse())
+      void reply.status(translated.status).send(translated.toResponse(wordingFor(translated)))
       return
     }
 

@@ -1,8 +1,21 @@
 # KPX — Rule Catalogue
 
+> **This is the design document, not the runtime source of truth.**
+> `src/api/src/shared/errors/catalogue.ts` is authoritative for the wording a user
+> actually sees, and for anything a test or the runtime reads. Nothing parses this
+> file — a test that scrapes prose Markdown fails on formatting and passes on a wrong
+> message. Keeping the wording here in step with `catalogue.ts` is a manual step, and
+> it is fine for it to lag: this file describes *intent*, and the reason each rule
+> exists, which is what the third column is for.
+>
 > Every rule the database enforced procedurally, captured **before** the triggers were
 > removed, plus any rule added since that would have been a trigger had one existed.
 > This is the specification the API implements, and the test plan for it.
+>
+> The 65 named `ck_*` CHECK constraints are **not** listed here — they were never
+> triggers and are still enforced by SQLite. They reach the API through
+> `shared/errors/constraint-map.ts`, which a test keeps in step with the schema in
+> both directions.
 >
 > Declarative constraints are **not** listed here — 176 CHECK, 108 foreign keys and 35
 > unique constraints stay in the schema and continue to be enforced by SQLite. This

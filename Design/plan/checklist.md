@@ -3,7 +3,7 @@
 Standing rules live in `conventions.md` and are not repeated here. A step may take 1–3 PRs;
 the size rule wins. Tick a box only when its **Verify** line has actually been run.
 
-**Progress:** rules ported 0 / 89 · steps done 4 / 25 planned
+**Progress:** rules ported 0 / 89 · steps done 5 / 25 planned
 
 | | Phase | Steps | Rules | Proves |
 |---|---|---|---|---|
@@ -169,9 +169,9 @@ deliberate `await` inside a `write()` → **lint fails**. Remove it.
 - [x] `shared/errors/translate.ts` — SQLite error → `AppError`
 
 **5c — catalogue**
-- [ ] `shared/errors/catalogue.ts` — the machine-readable source of truth: `code → { rule, en, vi }`, `vi` null for now
-- [ ] `shared/errors/constraint-map.ts` — the 65 named `ck_*` constraints → code
-- [ ] `Design/rule-catalogue.md` gets a header noting `catalogue.ts` is authoritative for runtime wording
+- [x] `shared/errors/catalogue.ts` — the machine-readable source of truth: `code → { rule, en, vi }`, `vi` null for now
+- [x] `shared/errors/constraint-map.ts` — the 65 named `ck_*` constraints → code
+- [x] `Design/rule-catalogue.md` gets a header noting `catalogue.ts` is authoritative for runtime wording
 
 **Verify:** force a named CHECK violation → 422 with the right **code**. Force a foreign-key
 violation → 422, not a 500. Unknown SQLite error → 500 with no internals leaked.
