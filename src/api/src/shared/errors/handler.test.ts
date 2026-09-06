@@ -78,9 +78,10 @@ describe('an unexpected throw', () => {
     })
 
     expect(response.statusCode).toBe(500)
-    expect(response.json()).toEqual({
-      error: { code: 'INTERNAL', message: 'Internal server error' },
-    })
+    // The code, not the wording: §8 makes the catalogue authoritative for
+    // messages, and asserting them here would break on rephrasing and again on
+    // Vietnamese.
+    expect(response.json().error.code).toBe('INTERNAL')
   })
 
   it('leaks nothing from the original error', async () => {
@@ -204,9 +205,7 @@ describe('a SQLite constraint reaching HTTP', () => {
     })
 
     expect(response.statusCode).toBe(500)
-    expect(response.json()).toEqual({
-      error: { code: 'INTERNAL', message: 'Internal server error' },
-    })
+    expect(response.json().error.code).toBe('INTERNAL')
     expect(response.payload).not.toContain('no_such_table')
     expect(response.payload).not.toContain('SQLITE')
   })
