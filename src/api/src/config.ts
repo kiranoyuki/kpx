@@ -1,7 +1,16 @@
 // Parses and validates process.env once, at import time, so a bad environment
 // fails at startup rather than partway through a request.
 
+import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+
+/**
+ * Loads `src/api/.env` if it is there, using Node's own loader — no dotenv
+ * dependency. Without this `.env.example` documents variables that nothing ever
+ * reads, and a clean clone cannot start.
+ */
+const ENV_FILE = fileURLToPath(new URL('../.env', import.meta.url))
+if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE)
 
 const NODE_ENVS = ['development', 'test', 'production'] as const
 type NodeEnv = (typeof NODE_ENVS)[number]
@@ -46,19 +55,32 @@ function parseDatabasePath(raw: string | undefined): string {
   return raw
 }
 
-/** Strictly true/false: an unset or misspelled value must not read as enabled. */
-function parseAllowStubAuth(raw: string | undefined): boolean {
-  return raw === 'true'
+/**
+ * TODO(auth): removed in Phase J with the stub it guards.
+ *
+ * Set explicitly, it means exactly what it says — a misspelled value reads as
+ * off, never as on. Left unset it defaults to **on outside production and off
+ * in production**, which is where the guard actually earns its place: the
+ * accident worth preventing is a production deploy still trusting a header
+ * anyone can set, not a developer running the clinic app on a laptop.
+ */
+function parseAllowStubAuth(raw: string | undefined, nodeEnv: NodeEnv): boolean {
+  if (raw !== undefined) return raw === 'true'
+  return nodeEnv !== 'production'
 }
 
 function parseConfig(env: NodeJS.ProcessEnv): Config {
+  const nodeEnv = parseNodeEnv(env.NODE_ENV)
   return {
-    nodeEnv: parseNodeEnv(env.NODE_ENV),
+    nodeEnv,
     port: parsePort(env.PORT),
     host: env.HOST ?? '0.0.0.0',
     databasePath: parseDatabasePath(env.DATABASE_PATH),
-    allowStubAuth: parseAllowStubAuth(env.ALLOW_STUB_AUTH),
+    allowStubAuth: parseAllowStubAuth(env.ALLOW_STUB_AUTH, nodeEnv),
   }
 }
 
 export const config: Config = parseConfig(process.env)
+
+/** Exported for tests only: the default above is a security decision worth pinning. */
+export const __parseAllowStubAuthForTest = parseAllowStubAuth
