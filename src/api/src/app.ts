@@ -18,13 +18,19 @@ export interface AppDeps {
   allowStubAuth: boolean
   /** Module routes, by audience. Empty until step 16. */
   routes?: RouteGroups
+  /**
+   * Request logging. On by default; the test harness turns it off, because a
+   * suite that prints a stack trace for every deliberate 401 is a suite nobody
+   * reads.
+   */
+  logger?: boolean
 }
 
 // Builds a fully configured Fastify instance but never calls listen() — that
 // is what makes it testable via fastify.inject() (see app.test.ts) and keeps
 // main.ts the only place that binds a port.
 export function buildApp(deps: AppDeps): FastifyInstance {
-  const app = Fastify({ logger: true })
+  const app = Fastify({ logger: deps.logger ?? true })
 
   // Before anything else: a server that starts while trusting a header anyone
   // can set is worse than one that does not start.
