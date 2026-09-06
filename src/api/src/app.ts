@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from 'fastify'
 
 import { readPragmas, type SqliteDatabase } from '@kpx/db'
 
+import { assertStubAuthAllowed } from './context/principal.js'
+import { registerRouteGroups, type RouteGroups } from './routes.js'
 import { registerErrorHandler } from './shared/errors/handler.js'
 
 /**
@@ -12,6 +14,10 @@ import { registerErrorHandler } from './shared/errors/handler.js'
  */
 export interface AppDeps {
   sqlite: SqliteDatabase
+  /** Must be true while authentication is the X-Acting-User stub. */
+  allowStubAuth: boolean
+  /** Module routes, by audience. Empty until step 16. */
+  routes?: RouteGroups
 }
 
 // Builds a fully configured Fastify instance but never calls listen() — that
@@ -19,6 +25,10 @@ export interface AppDeps {
 // main.ts the only place that binds a port.
 export function buildApp(deps: AppDeps): FastifyInstance {
   const app = Fastify({ logger: true })
+
+  // Before anything else: a server that starts while trusting a header anyone
+  // can set is worse than one that does not start.
+  assertStubAuthAllowed(deps.allowStubAuth)
 
   // Registered first, so nothing added later can escape it.
   registerErrorHandler(app)
@@ -31,6 +41,8 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     const { foreignKeys, journalMode } = readPragmas(deps.sqlite)
     return { status: 'ok', foreignKeys, journalMode }
   })
+
+  registerRouteGroups(app, deps.sqlite, deps.routes)
 
   return app
 }
