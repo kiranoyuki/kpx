@@ -1,85 +1,73 @@
 /**
- * Time. Four types that look alike and mean different things.
+ * Time. Two kinds of it, and they are not interchangeable.
  *
- * `conventions.md` §4: conflating them is the most likely time bug in this
- * system, and every one of them is a string, so only the type system can keep
- * them apart. They are branded for that reason — the compiler refuses a
- * `LocalDate` where an `Instant` belongs.
+ * ## The policy (`conventions.md` §4)
  *
- * | Type             | Example                     | Stored as | Converted? |
- * |------------------|-----------------------------|-----------|------------|
- * | `Instant`        | `2026-08-20T10:00:00+07:00` | never     | it *is* the conversion |
- * | `ClinicDateTime` | `2026-08-20 10:00:00`       | yes       | to/from Instant only |
- * | `LocalDate`      | `2026-08-20`                | yes       | **never** |
- * | `LocalTime`      | `10:00`                     | yes       | **never** |
+ * **Scheduling is clinic business time. Events are absolute instants.**
  *
- * ## Why the database holds clinic-local text
+ * | Kind | Type | Example | Stored as |
+ * |---|---|---|---|
+ * | *when the clinic will see you* | `LocalDate` + `LocalTime` | `2026-09-10`, `10:00` | as written, never converted |
+ * | *when something happened* | `Instant` | `2026-09-10T03:30:00.000Z` | UTC |
  *
- * Every timestamp in `db/kpx.db` is naive clinic wall time, and 34 `date()` /
- * `time()` expressions across the views read it that way. SQLite converts any
- * offset-bearing timestamp to UTC, so storing `…T10:00:00+07:00` would make
- * `time()` report `03:00:00` and put every late appointment on the wrong day
- * sheet. Storage stays naive; the offset lives at the edges.
+ * An appointment at 10:00 on 10 September is a business fact about the clinic's
+ * day. It is 10:00 whether the patient is in Hanoi or New York, and converting
+ * it to anyone's local time would change what it means. So it is stored exactly
+ * as written and never passes through a timezone.
  *
- * Vietnam is UTC+7 all year and has never observed DST, so naive local text is
- * unambiguous and the instant is always recoverable. `time.test.ts` checks that
- * against `Intl` in January and July — if Vietnam ever adopts DST, that test
- * fails rather than the arithmetic silently drifting.
+ * "When did the patient press Book" is the opposite: one moment, observed from
+ * wherever the patient was. Stored UTC, so ordering and causality hold across
+ * clients in different zones, and rendered in clinic time for staff to read.
  *
- * ## Why the API speaks Instants
+ * ## The timezone is a name, not an offset
  *
- * A naive `2026-08-20 10:00:00` crossing the HTTP boundary is the one string a
- * client abroad can misread as its own local time. Everything leaving the API
- * carries the offset, which is simultaneously a true moment and readable as
- * clinic time.
+ * `CLINIC_TIME_ZONE` is the IANA identifier, not `+07:00`. Vietnam has stayed
+ * UTC+7 for decades, but the business rule is "the time at the clinic in
+ * Vietnam", not "seven hours ahead" — and the name survives a change of law
+ * while the offset silently would not. Conversion goes through `Intl`, so the
+ * offset is looked up rather than assumed.
  *
  * ## Where "now" comes from
  *
- * `Clock.now()`, always — never `new Date()`, never `datetime('now')` (which is
- * UTC), never `'localtime'` (which is the *server's* zone). The API stamps every
- * audit field itself, so a request from anywhere is logged in clinic time. It
- * never accepts a client-supplied timestamp for an audit field: a client may say
- * which slot it wants, never when something happened.
+ * `Clock.now()`, always. Never `new Date()` in business logic, never
+ * `datetime('now','localtime')` (the *server's* zone), and never a timestamp
+ * the client sent. A client may say which slot it wants — that is intent. When
+ * something happened is the server's answer, because a browser's clock can be
+ * wrong, stale, or lying.
  */
 
 declare const brand: unique symbol
 
-/** An exact moment, carrying its offset. What the API emits and accepts. */
+/** An exact moment, UTC. What every event and audit column stores. */
 export type Instant = string & { readonly [brand]: 'Instant' }
-/** The stored form: clinic wall time, no offset. What every timestamp column holds. */
-export type ClinicDateTime = string & { readonly [brand]: 'ClinicDateTime' }
-/** A calendar day. A pay period runs between these. Never converted. */
+/** A calendar day in clinic business time. Never converted. */
 export type LocalDate = string & { readonly [brand]: 'LocalDate' }
-/** A time of day. Opening hours are these. Never converted. */
+/** A time of day in clinic business time. Never converted. */
 export type LocalTime = string & { readonly [brand]: 'LocalTime' }
 
-/** The clinic's business timezone. Never the server's, which is not knowable. */
+/** IANA name, deliberately — see the header. */
 export const CLINIC_TIME_ZONE = 'Asia/Ho_Chi_Minh'
 
-/** Constant because Vietnam has no DST. `time.test.ts` fails if that changes. */
-export const CLINIC_UTC_OFFSET = '+07:00'
-
-const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/
-const CLINIC_DATE_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/
-const LOCAL_TIME = /^\d{2}:\d{2}(?::\d{2})?$/
+const LOCAL_TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function reject(what: string, value: string, shape: string): never {
   throw new RangeError(`${value} is not a ${what} (expected ${shape})`)
 }
 
+/**
+ * Accepts UTC only. An offset-bearing string is refused rather than converted:
+ * if one reaches here, some layer is passing along a client's idea of the time,
+ * and silently normalising it would hide that.
+ */
 export function toInstant(value: string): Instant {
-  if (!INSTANT.test(value)) reject('Instant', value, '2026-08-20T10:00:00+07:00')
+  if (!INSTANT.test(value)) reject('Instant', value, '2026-09-10T03:30:00.000Z (UTC)')
   return value as Instant
 }
 
-export function toClinicDateTime(value: string): ClinicDateTime {
-  if (!CLINIC_DATE_TIME.test(value)) reject('ClinicDateTime', value, '2026-08-20 10:00:00')
-  return value as ClinicDateTime
-}
-
 export function toLocalDate(value: string): LocalDate {
-  if (!LOCAL_DATE.test(value)) reject('LocalDate', value, '2026-08-20')
+  if (!LOCAL_DATE.test(value)) reject('LocalDate', value, '2026-09-10')
   return value as LocalDate
 }
 
@@ -88,13 +76,6 @@ export function toLocalTime(value: string): LocalTime {
   return value as LocalTime
 }
 
-/**
- * The clinic's wall-clock fields for a moment.
- *
- * Uses `Intl` rather than adding seven hours, so the answer stays right if
- * Vietnam's offset ever changes. `Date` appears here and nowhere else outside
- * `clock.ts`; that is what the lint rule permits and why this function exists.
- */
 const CLINIC_PARTS = new Intl.DateTimeFormat('en-CA', {
   timeZone: CLINIC_TIME_ZONE,
   year: 'numeric',
@@ -106,64 +87,91 @@ const CLINIC_PARTS = new Intl.DateTimeFormat('en-CA', {
   hour12: false,
 })
 
-function clinicParts(instant: Instant): { date: string; time: string } {
-  const parts = CLINIC_PARTS.formatToParts(new Date(instant))
-  const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '00'
-  // en-CA yields ISO-shaped parts; hourCycle can render midnight as 24.
-  const hour = get('hour') === '24' ? '00' : get('hour')
-  return {
-    date: `${get('year')}-${get('month')}-${get('day')}`,
-    time: `${hour}:${get('minute')}:${get('second')}`,
+function partsOf(instant: Instant): Record<string, string> {
+  const found: Record<string, string> = {}
+  for (const part of CLINIC_PARTS.formatToParts(new Date(instant))) {
+    found[part.type] = part.value
   }
+  // hourCycle can render clinic midnight as 24.
+  if (found.hour === '24') found.hour = '00'
+  return found
 }
 
-/** An Instant → the naive clinic text a timestamp column holds. */
-export function toStored(instant: Instant): ClinicDateTime {
-  const { date, time } = clinicParts(instant)
-  return `${date} ${time}` as ClinicDateTime
-}
-
-/** A stored timestamp → the Instant the API emits. */
-export function fromStored(stored: ClinicDateTime): Instant {
-  return `${stored.replace(' ', 'T')}${CLINIC_UTC_OFFSET}` as Instant
-}
-
-/** Which clinic day a moment falls on. "Today" is this, from `clock.now()`. */
+/** Which clinic day a moment fell on. "Today" is this, from `clock.now()`. */
 export function clinicDateOf(instant: Instant): LocalDate {
-  return clinicParts(instant).date as LocalDate
+  const p = partsOf(instant)
+  return `${p.year ?? ''}-${p.month ?? ''}-${p.day ?? ''}` as LocalDate
 }
 
-/** The clinic wall time of a moment, to the minute. */
+/** The clinic wall time a moment fell at — for showing staff when something happened. */
 export function clinicTimeOf(instant: Instant): LocalTime {
-  return clinicParts(instant).time.slice(0, 5) as LocalTime
+  const p = partsOf(instant)
+  return `${p.hour ?? ''}:${p.minute ?? ''}` as LocalTime
 }
 
-/** The calendar day of a stored timestamp, without going near a `Date`. */
-export function dateOfStored(stored: ClinicDateTime): LocalDate {
-  return stored.slice(0, 10) as LocalDate
-}
-
-/** The wall time of a stored timestamp, to the minute. */
-export function timeOfStored(stored: ClinicDateTime): LocalTime {
-  return stored.slice(11, 16) as LocalTime
-}
-
-/** Combines a clinic day and time into the stored form. */
-export function storedFrom(date: LocalDate, time: LocalTime): ClinicDateTime {
-  const seconds = time.length === 5 ? `${time}:00` : time
-  return `${date} ${seconds}` as ClinicDateTime
+/** The clinic wall time to the second, for an audit line. */
+export function clinicTimeOfSecond(instant: Instant): string {
+  const p = partsOf(instant)
+  return `${p.hour ?? ''}:${p.minute ?? ''}:${p.second ?? ''}`
 }
 
 /**
- * Calendar arithmetic on a day, via `Date.UTC` — a calendar, not a clock. The
- * hazard §4 names is `new Date('2026-08-20')` followed by reading *local*
- * fields; every part of this stays in UTC, so no zone can shift the answer.
+ * The offset the clinic was on at a given moment, in minutes.
+ *
+ * Looked up through `Intl` rather than hard-coded, so this stays correct if
+ * Vietnam's offset ever changes. `time.test.ts` asserts it is +7h across the
+ * year, and that test is what would announce such a change.
+ */
+function clinicOffsetMinutesAt(utcMillis: number): number {
+  const p = partsOf(new Date(utcMillis).toISOString() as Instant)
+  const asIfUtc = Date.UTC(
+    Number(p.year),
+    Number(p.month) - 1,
+    Number(p.day),
+    Number(p.hour),
+    Number(p.minute),
+    Number(p.second),
+  )
+  return (asIfUtc - utcMillis) / 60_000
+}
+
+/**
+ * A clinic appointment slot → the absolute moment it starts.
+ *
+ * **Derived, never the source of truth.** The business fact is the date and the
+ * time; this is for the things that need a real instant — reminder scheduling,
+ * background jobs, calendar exports, ordering across clinics.
+ *
+ * Resolved in two passes because an offset lookup needs a moment to look up,
+ * and the moment is what is being computed. The second pass settles it. In a
+ * zone with DST the first guess can land on the wrong side of a transition;
+ * Vietnam has none, so the passes agree, and the loop costs nothing.
+ */
+export function instantOfSlot(date: LocalDate, time: LocalTime): Instant {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number]
+  const [hh, mm] = time.split(':').map(Number) as [number, number]
+  const wall = Date.UTC(y, m - 1, d, hh, mm)
+
+  let utc = wall - clinicOffsetMinutesAt(wall) * 60_000
+  utc = wall - clinicOffsetMinutesAt(utc) * 60_000
+
+  return new Date(utc).toISOString() as Instant
+}
+
+/** The clinic slot a moment corresponds to — the inverse of `instantOfSlot`. */
+export function slotOfInstant(instant: Instant): { date: LocalDate; time: LocalTime } {
+  return { date: clinicDateOf(instant), time: clinicTimeOf(instant) }
+}
+
+/**
+ * Calendar arithmetic on a business day, via `Date.UTC` — a calendar, not a
+ * clock. The hazard §4 names is `new Date('2026-09-10')` followed by reading a
+ * *local* field; everything here stays in UTC, so no zone can shift the answer.
  */
 export function addDays(date: LocalDate, days: number): LocalDate {
   if (!Number.isInteger(days)) throw new RangeError(`days must be whole, got ${String(days)}`)
   const [y, m, d] = date.split('-').map(Number) as [number, number, number]
-  const shifted = new Date(Date.UTC(y, m - 1, d + days))
-  return shifted.toISOString().slice(0, 10) as LocalDate
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10) as LocalDate
 }
 
 /** 0 = Sunday, matching `doctor_schedule.day_of_week`. */
@@ -181,8 +189,19 @@ export function daysBetween(from: LocalDate, to: LocalDate): number {
   return Math.round((at(to) - at(from)) / 86_400_000)
 }
 
+/** Minutes added to a slot time, staying inside the day. */
+export function addMinutes(time: LocalTime, minutes: number): LocalTime {
+  const [hh, mm] = time.split(':').map(Number) as [number, number]
+  const total = hh * 60 + mm + minutes
+  if (total < 0 || total >= 24 * 60) {
+    throw new RangeError(`${time} + ${String(minutes)} minutes leaves the day`)
+  }
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}` as LocalTime
+}
+
 /**
- * All four formats are fixed-width and zero-padded, so lexicographic order is
+ * Every format here is fixed-width and zero-padded, so lexicographic order is
  * chronological order. No parsing, and no `Date`.
  */
 export function compare(a: string, b: string): number {

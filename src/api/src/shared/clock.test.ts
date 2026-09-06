@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { FixedClock, SystemClock } from './clock.js'
 import { SeqIds, UuidIds } from './ids.js'
-import { clinicDateOf, clinicTimeOf, toStored } from './time.js'
+import { clinicDateOf, clinicTimeOf, instantOfSlot, toLocalDate, toLocalTime } from './time.js'
 
 describe('FixedClock', () => {
   it('reads back exactly the moment it was given', () => {
@@ -24,19 +24,17 @@ describe('FixedClock', () => {
 
   it('is what makes a "within 24 hours" rule assertable', () => {
     const clock = FixedClock('2026-09-04T10:00:00Z')
-    const appointment = '2026-09-05 09:00:00'
-    const hoursAway =
-      (new Date(`${appointment.replace(' ', 'T')}+07:00`).getTime() -
-        new Date(clock.now()).getTime()) /
-      3_600_000
+    const startsAt = instantOfSlot(toLocalDate('2026-09-05'), toLocalTime('09:00'))
+    const hoursAway = (new Date(startsAt).getTime() - new Date(clock.now()).getTime()) / 3_600_000
+
     expect(hoursAway).toBeLessThan(24)
+    expect(hoursAway).toBeGreaterThan(0)
   })
 
   it('lands in the clinic day the test expects', () => {
     const clock = FixedClock('2026-09-04T10:00:00Z')
     expect(clinicDateOf(clock.now())).toBe('2026-09-04')
     expect(clinicTimeOf(clock.now())).toBe('17:00')
-    expect(toStored(clock.now())).toBe('2026-09-04 17:00:00')
   })
 
   it('refuses a naive string, which has no moment', () => {

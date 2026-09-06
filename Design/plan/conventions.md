@@ -260,56 +260,76 @@ Then cancellation is inside the 24-hour window
 
 The same applies to ids: a test asserting a created row cannot name it if the id is random.
 
-### Time semantics — three distinct types
+### Time handling policy
 
-The clinic's business timezone is **`Asia/Ho_Chi_Minh`**. It is a constant in `shared/`, not
-the server's local zone, which must never be read.
+**All clinic scheduling is defined in the clinic's IANA timezone
+(`Asia/Ho_Chi_Minh`). Appointment dates and times are clinic-local business
+time regardless of where the user is. All system event timestamps — creation,
+update and audit — are stored as absolute UTC instants. The API owns timezone
+interpretation; front ends must never infer or convert scheduling times from the
+device timezone. Server timestamps are authoritative for events; a
+client-supplied timestamp is never used as one.**
 
-| Type | Example | Stored as | Converted? |
+These are two different kinds of time, and the distinction is the whole rule.
+
+| Kind | Type | Example | Stored as |
 |---|---|---|---|
-| **Instant** — an exact moment | `2026-09-04T10:00:00+07:00` | *not stored* — the wire form | it **is** the conversion |
-| **ClinicDateTime** — the stored moment | `2026-09-04 10:00:00` | naive clinic wall time | to/from Instant only |
-| **LocalDate** — a calendar day | `2026-09-04` | `YYYY-MM-DD` text | **never** |
-| **LocalTime** — a time of day | `08:30` | `HH:MM` text | **never** |
+| *when the clinic will see you* | `LocalDate` + `LocalTime` | `2026-09-10`, `10:00` | as written, **never converted** |
+| *when something happened* | `Instant` | `2026-09-10T03:30:00.000Z` | UTC |
 
-### Timestamps are stored in clinic wall time, and transmitted with an offset
+**Scheduling.** An appointment at 10:00 on 10 September is a fact about the
+clinic's day. It is 10:00 whether the patient is in Hanoi or New York, and
+converting it to anyone's local time would change what it means. Availability is
+offered in clinic time, to everyone, with the zone stated in the contract:
 
-Decided 2026-09-06 (`decisions.md`). Every timestamp column holds naive clinic time,
-because that is what the data holds and what 34 `date()` / `time()` expressions across the
-views assume — SQLite converts any offset-bearing timestamp to UTC, so storing `+07:00`
-would make `time()` report `03:00:00` and put every late appointment on the wrong day sheet.
+```json
+{ "slotId": "slot-789", "date": "2026-09-10", "startTime": "10:00",
+  "endTime": "10:30", "timeZone": "Asia/Ho_Chi_Minh" }
+```
 
-Nothing is lost: Vietnam is UTC+7 all year and has never observed DST, so the moment is
-always recoverable. A test asserts that against `Intl` in four months of the year and fails
-if it ever stops being true.
+A patient in New York sees **10:00–10:30 · Vietnam time** and books it. The
+front end does no timezone arithmetic, which is what keeps it correct.
 
-**The API never emits or accepts a naive datetime.** Everything on the wire carries the
-offset — `2026-09-04T10:00:00+07:00` — which is a true moment *and* reads as clinic time.
-That is the one string a client abroad cannot misread as its own local time. A patient in
-Sydney books from the clinic's timetable, shown in clinic time, and their browser still
-resolves the moment correctly.
+**Events.** "When did the patient press Book" is one moment, observed from
+wherever they were. Stored UTC, so ordering and causality hold across clients in
+different zones, then rendered in clinic time for staff:
 
-**Never `datetime('now')`.** It returns UTC, and `datetime('now','localtime')` returns the
-*server's* zone — a third wrong answer. 17 columns carry a `DEFAULT (datetime('now'))` that
-would write UTC into a column the seed filled with clinic time. The API supplies every
-timestamp itself, from `clock.now()`, converted in `shared/time.ts`. The defaults are a
-trap, not a fallback (`open-questions.md`).
+```
+occurred_at   2026-09-10T03:30:00.000Z      ← stored
+clinic UI     10/09/2026 10:30              ← displayed
+```
 
-**A client-supplied timestamp is never an audit field.** A client may say which slot it
-wants — that is intent. When something happened is the server's answer, always.
+Never convert a stored event timestamp. Convert on the way out.
 
-These are not interchangeable, and conflating them is the most likely time bug in this
-system. `new Date('2026-09-04')` parses as UTC midnight, which is **07:00 on the 4th** in
-Ho Chi Minh City — so a pay period, an expiry date or a day sheet computed that way silently
-shifts by a day for part of every day.
+**The timezone is a name, not an offset.** `Asia/Ho_Chi_Minh`, never `+07:00`.
+Vietnam has stayed UTC+7 for decades, but the business rule is "the time at the
+clinic in Vietnam", not "seven hours ahead" — the name survives a change of law
+and the offset silently would not. `shared/time.ts` looks the offset up through
+`Intl`, and a test asserts +7 across the year so a change announces itself.
+
+**Never `datetime('now')` from a query.** It is UTC — correct for an event, but
+the API supplies it, not the database. `datetime('now','localtime')` is worse:
+the *server's* zone, which is a third answer again.
+
+**A client timestamp is intent, never a record.** A client may say which slot it
+wants. When something happened is the server's answer, because a browser's clock
+can be wrong, stale, or lying.
+
+**Book a slot, not a time.** Where a slot exists, the client sends `slotId` and
+nothing else. The front end does no arithmetic, and the API claims an existing
+clinic-defined row transactionally — which closes the double-booking race at the
+same time as the timezone one.
 
 Rules of thumb:
 
-- An appointment *starts at* an Instant. A pay period *runs between* LocalDates. Clinic
-  opening hours are LocalTimes. Inventory *expires on* a LocalDate.
-- "Today", "this week", weekday, and "which pay period is this in" are answered in the
-  clinic timezone, from `clock.now()` — never from the server's zone.
-- A LocalDate is never round-tripped through a `Date`.
+- An appointment *is* a LocalDate and a LocalTime. A pay period *runs between*
+  LocalDates. Opening hours are LocalTimes. Inventory *expires on* a LocalDate.
+- An audit row *happened at* an Instant.
+- "Today", "this week", weekday and "which pay period is this in" are answered in
+  the clinic timezone, from `clock.now()` — never from the server's zone.
+- A LocalDate is never round-tripped through a `Date`. `new Date('2026-09-10')`
+  is UTC midnight, which is 07:00 the same day at the clinic, so a period, an
+  expiry or a day sheet computed that way shifts by a day for part of every day.
 
 Formatting for display is the UI's job, never the domain's.
 

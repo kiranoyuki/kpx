@@ -29,15 +29,16 @@ discount. Correct?
 
 ## Blocking nothing yet, but a live landmine
 
-**10. The 17 `DEFAULT (datetime('now'))` columns write UTC.**
-`datetime('now')` is UTC; the seed wrote clinic time. A row that lets the default fire is
-seven hours off in a column whose other rows are not, and nothing errors. `conventions.md`
-§4 already requires the API to supply every timestamp from the injected clock, so this only
-bites if that rule is broken — but a wrong default is a poor last line of defence.
+**10. Should appointments become a bookable slot entity?**
+`decisions.md` (2026-09-06) recommends the client sending `slotId` rather than a date and a
+time: the front end then does no timezone arithmetic, and the API claims an existing
+clinic-defined row transactionally, which closes the double-booking race at the same time.
+No slot entity exists. Adopting one changes Phase B1's booking design and Phase P's public
+API, so it is a design decision rather than a migration. Blocking Phase B1 if adopted.
 
-Options: leave them and rely on the rule; or change them to `datetime('now','+7 hours')`,
-which is deterministic regardless of the server's zone. The second touches
-`db/modules/**`, frozen outside step P1, so it needs a decision rather than a drive-by fix.
+*(The 17 `DEFAULT (datetime('now'))` columns are no longer a problem: they write UTC, which
+is now correct for an event timestamp. The seed values are what need shifting — staged as
+migration step 2 in `decisions.md`.)*
 
 ## Blocking Phase P — Patient app
 

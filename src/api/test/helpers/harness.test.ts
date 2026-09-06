@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { FixedClock } from '../../src/shared/clock.js'
 import { SeqIds } from '../../src/shared/ids.js'
-import { clinicDateOf, toStored } from '../../src/shared/time.js'
+import { clinicDateOf, clinicTimeOf } from '../../src/shared/time.js'
 import { createTestApi, TEST_NOW, type TestApi } from './api.js'
 import { createTestDatabase, type TestDatabase } from './db.js'
 
@@ -154,7 +154,7 @@ describe('injected clock and ids', () => {
           clinic: [
             (scope) => {
               const { clock } = scope
-              scope.get('/now', () => ({ now: clock.now(), stored: toStored(clock.now()) }))
+              scope.get('/now', () => ({ now: clock.now(), clinicTime: clinicTimeOf(clock.now()) }))
             },
           ],
         },
@@ -164,9 +164,9 @@ describe('injected clock and ids', () => {
     const response = await api.inject({ method: 'GET', url: '/api/clinic/now', as: api.staffId })
 
     expect(response.json()).toEqual({
+      // Stored UTC; rendered in clinic time only for display.
       now: '2026-09-04T10:00:00.000Z',
-      // 10:00 UTC is 17:00 at the clinic — the conversion happens once, here.
-      stored: '2026-09-04 17:00:00',
+      clinicTime: '17:00',
     })
   })
 

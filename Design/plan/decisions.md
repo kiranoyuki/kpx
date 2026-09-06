@@ -5,44 +5,53 @@ What changed, why, and which workflow docs and tests moved with it
 
 ---
 
-## 2026-09-06 — Timestamps are stored in clinic wall time, not UTC
+## 2026-09-06 — Time handling policy: scheduling is business time, events are UTC
 
-**Was:** `conventions.md` §4 said an Instant is stored as ISO-8601 UTC text. The schema and
-seed, written earlier, store naive clinic wall time and never mention a timezone. The two
-documents disagreed and nobody had noticed, because no code had written a timestamp yet.
+**Was:** `conventions.md` §4 said an Instant is stored as ISO-8601 UTC. The schema and seed,
+written earlier, store naive clinic wall time in every column and never mention a timezone.
+My first answer was to make everything clinic-local and put the offset on the wire; that kept
+the views working but treated scheduling and auditing as one problem.
 
-**Now:** storage is naive clinic time — `2026-08-20 10:00:00`. The API transmits Instants
-carrying the offset — `2026-08-20T10:00:00+07:00`. `shared/time.ts` is the only place the
-two meet, and the types make mixing them a compile error.
+**Now:** they are two problems with two answers.
 
-**Why.** The prompt was foreign patients: someone in Sydney booking in advance. The
-realisation is that a foreign patient still books a *clinic* slot — the appointment happens
-at 10:00 in Ho Chi Minh City wherever they are — so their timezone is a display concern, not
-a storage one. Availability is shown in clinic time to everyone.
+| Kind | Type | Stored as |
+|---|---|---|
+| *when the clinic will see you* | `LocalDate` + `LocalTime` | as written, never converted |
+| *when something happened* | `Instant` | UTC |
 
-Storage then follows the data: SQLite converts any offset-bearing timestamp to UTC, so
-`time('2026-08-20T10:00:00+07:00')` is `03:00:00`. Storing offsets would silently break 34
-`date()`/`time()` expressions and put every appointment after 17:00 local on the previous
-day's sheet. Vietnam is UTC+7 all year with no DST, so naive local text loses nothing — the
-moment is always recoverable, and a test fails if that ever stops being true.
+**Why.** An appointment at 10:00 on 10 September is a fact about the clinic's day — 10:00
+whether the patient is in Hanoi or New York — so converting it to anyone's zone changes what
+it means. "When did the patient press Book" is the opposite: one moment, observed from
+wherever they were, and only UTC keeps ordering and causality straight across clients in
+different zones. Storing both the same way forces one of them to be wrong.
 
-The offset on the wire is what makes the foreign case work with no per-user logic: the
-string is unambiguous to a machine and still reads as clinic time to a human.
-
-**A bug this surfaced.** 17 columns carry `DEFAULT (datetime('now'))`, which writes **UTC** —
-while the seed wrote clinic time. The same column would hold two zones depending on whether
-the API supplied a value. Nothing would error; the audit log would just be seven hours wrong
-for some rows. §4 already required the API to supply timestamps from an injected clock, so
-the rule stands; the defaults are a trap behind it. Raised in `open-questions.md` because
-`db/modules/**` is frozen outside step P1.
+The timezone is stored as an IANA name rather than `+07:00`. Vietnam has been UTC+7 for
+decades, but the business rule is "the time at the clinic in Vietnam", and the name survives a
+change of law where an offset silently would not.
 
 **Consequences**
 
-- `shared/time.ts` carries four branded types. Conflating them is a compile error rather than
-  a seven-hour offset.
-- Reminders (Phase I) must be computed on the Instant, not the stored string, or a foreign
-  patient's reminder lands seven hours out. The type split is what will force that.
-- A second clinic in another timezone would need a migration. Accepted.
+- `shared/time.ts` carries three branded types and no fourth. `toInstant` refuses an
+  offset-bearing string rather than normalising it: if one arrives, some layer is passing
+  along a client's clock.
+- `instantOfSlot(date, time)` derives an absolute moment for reminders, jobs and calendar
+  exports. Derived — the business fact stays the date and the time.
+- **Book a slot, not a time.** Where a slot exists the client sends `slotId` and nothing else,
+  so the front end does no timezone arithmetic and the API claims an existing row
+  transactionally — closing the double-booking race and the timezone one together. No slot
+  entity exists yet; see below.
+
+**Migration, staged.** `db/modules/**` is unfrozen for this, by decision, but not in one PR:
+
+1. **This PR** — the policy, and `shared/time.ts` matching it. Stops new code writing the
+   wrong shape. No schema change.
+2. **Audit columns → UTC.** 29 columns across 9 modules currently hold clinic-local in the
+   seed; ~256 datetime literals shift by −7h. `DEFAULT (datetime('now'))` is already UTC and
+   becomes correct rather than a trap.
+3. **`appointment.scheduled_at` → `appointment_date` + `start_time`.** Touches 5 views, 3
+   indexes and `v_appt_outside_schedule`. Cheapest now, before Phase B1 builds rule 2 and the
+   day sheet on top of it.
+4. **A slot entity**, if adopted — a design change to Phase B1 and Phase P, not a migration.
 
 ---
 
