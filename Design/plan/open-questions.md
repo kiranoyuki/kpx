@@ -27,6 +27,19 @@ discount. Correct?
 §18 currently forbids stacking — a patient may use a voucher code **or** an approved
 `DiscountProposal`, never both. Confirm, or state the precedence.
 
+## Blocking nothing yet, but a live landmine
+
+**10. Should appointments become a bookable slot entity?**
+`decisions.md` (2026-09-06) recommends the client sending `slotId` rather than a date and a
+time: the front end then does no timezone arithmetic, and the API claims an existing
+clinic-defined row transactionally, which closes the double-booking race at the same time.
+No slot entity exists. Adopting one changes Phase B1's booking design and Phase P's public
+API, so it is a design decision rather than a migration. Blocking Phase B1 if adopted.
+
+*(The 17 `DEFAULT (datetime('now'))` columns are no longer a problem: they write UTC, which
+is now correct for an event timestamp. The seed values are what need shifting — staged as
+migration step 2 in `decisions.md`.)*
+
 ## Blocking Phase P — Patient app
 
 **6. Deployment origin.**
