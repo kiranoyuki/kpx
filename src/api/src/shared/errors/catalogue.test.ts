@@ -78,8 +78,8 @@ describe('the codes this module can emit', () => {
 })
 
 describe('the constraint map', () => {
-  it('covers all 65 named constraints', () => {
-    expect(Object.keys(CONSTRAINT_TO_CODE)).toHaveLength(65)
+  it('covers every named constraint in the schema', () => {
+    expect(Object.keys(CONSTRAINT_TO_CODE)).toHaveLength(68)
   })
 
   it('maps every constraint to a catalogued code', () => {

@@ -539,7 +539,7 @@ Marked `// TODO(step-N):` naming the step that repays them. Currently open:
 |---|---|
 | Stub auth via `X-Acting-User` header | The auth step — after Phase C, before Phase P (`decisions.md`) |
 | No idempotency keys | Before Phase F accepts real payments |
-| No clinic-hours entity — only per-doctor availability | Phase B1 |
+| ~~No clinic-hours entity~~ | Closed — `clinic_hours`, module 11 |
 | No patient auth — `/api/patient/*` is not registered at all | The auth step, before Phase P2 |
 | Clinic UI signs in as a mock seed user, no login screen | The auth step |
 | Public booking requests unverified — rate limit only, no OTP | Phase J |

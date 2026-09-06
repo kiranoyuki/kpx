@@ -5,6 +5,43 @@ What changed, why, and which workflow docs and tests moved with it
 
 ---
 
+## 2026-09-06 — Scheduling is built on services and resources, not chair + doctor + time
+
+**Was:** an appointment was a doctor, a chair and a timestamp, and a "slot" would have been
+those three things stored. `service_category` named one `required_chair_type_id`; nothing
+recorded how long a service takes, who may book it, or which providers can perform it.
+
+**Now:** *a service determines what resources and duration are needed; an appointment
+reserves those resources for an interval.* Written up in
+`core-entities/scheduling-model.md`.
+
+**Why.** A stored slot has to name a chair before anyone knows what the patient wants — five
+chairs by six providers by twenty half-hours is 600 rows a day, most meaningless, all needing
+to stay in step with schedules that change. Computing availability instead means the answer
+is never stale and the resource is chosen at the last moment, inside the booking transaction,
+where the service is finally known.
+
+The slot id is opaque for the same reason an id always should be: it identifies a thing
+rather than describing its state. Move the appointment fifteen minutes or swap Chair 3 for
+Chair 4 and it is still the same appointment. It also removes the timezone problem rather
+than solving it — the patient app sends a `slotId` and never a date and a time.
+
+**What this closed.** `conventions.md` §13 has carried "no clinic-hours entity" as an open
+shortcut from the start, and `checklist.md` step 19 flagged that booking needs *doctor free,
+chair free, and clinic open* with the third having nowhere to live. `clinic_hours` is now a
+table, and Tết is a row rather than a special case.
+
+**Staged.** Module 11 (this PR) is additive: service duration and booking policy, allowed
+resource types, provider capabilities, clinic hours. Nothing existing reads it, so it sits
+alongside the old model while module 12 changes `appointment` — `service_id`,
+`treatment_plan_id`, `appointment_resource` replacing `chair_id`, `appointment_reason`, and
+splitting `scheduled_at` into a date and a time, which absorbs stage 3 of the timezone
+migration. Module 12 touches five views and rules 1–3, so it is its own PR.
+
+**Phase B1 is rescoped** to Initial consultation and Cleaning.
+
+---
+
 ## 2026-09-06 — Time handling policy: scheduling is business time, events are UTC
 
 **Was:** `conventions.md` §4 said an Instant is stored as ISO-8601 UTC. The schema and seed,

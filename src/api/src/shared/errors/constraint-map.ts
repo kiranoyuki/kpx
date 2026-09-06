@@ -79,4 +79,7 @@ export const CONSTRAINT_TO_CODE: Readonly<Record<string, ErrorCode>> = {
   ck_notif_announce_is_broad: 'ANNOUNCEMENT_NEEDS_ROLE',
   ck_notif_not_self: 'NOTIFICATION_TO_SELF',
   ck_notif_read_after_sent: 'NOTIFICATION_READ_BEFORE_SENT',
+  ck_hours_one_mode: 'CLINIC_HOURS_NEEDS_ONE_MODE',
+  ck_hours_open_has_window: 'CLINIC_HOURS_WINDOW_STATE_MISMATCH',
+  ck_hours_closes_after_opens: 'CLINIC_HOURS_INVERTED',
 }

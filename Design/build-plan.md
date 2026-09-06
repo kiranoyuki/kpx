@@ -2,7 +2,7 @@
 
 How to turn `core-entities/entities.md` into a working schema, one module at a time.
 
-**41 entities, 10 modules.** Module order is derived from the actual foreign keys in the
+**45 entities, 12 modules.** Module order is derived from the actual foreign keys in the
 design, not from workflow intuition — the two disagree in one place, and following
 workflow order there would force a rebuild.
 
@@ -67,9 +67,14 @@ order wins.
 | 8 | Payroll & Commission | 7 | 1, 2, 3, 5, 6 |
 | 9 | Notifications | 1 | 1 |
 | 10 | Booking Requests | 1 | 1, 2, 3 |
+| 11 | Scheduling model — additive | 3 | 1, 2 |
+| 12 | Scheduling model — appointment | 2 | 3, 11 |
 
 Modules 7 and 9 are off the critical path and can be built in parallel or deferred.
 Module 10 arrives with the patient web app — see `plan/checklist.md` Phase P.
+Modules 11 and 12 rebuild scheduling around services and resources — see
+`core-entities/scheduling-model.md`. 11 is additive and already in; 12 changes
+`appointment` and its views and is the next schema step.
 
 ---
 

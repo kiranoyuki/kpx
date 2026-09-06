@@ -327,8 +327,19 @@ it before starting B1.**
 # Phase B1 — Appointments
 
 The stack is now known to work, so this slice adds the thing that actually needs proving:
-rule 2 is a check-then-write invariant that reads other rows, which is the class of rule the
-removed triggers used to hold.
+a check-then-write invariant that reads other rows, which is the class of rule the removed
+triggers used to hold.
+
+**Scoped to two services: Initial consultation and Cleaning** (`decisions.md`, 2026-09-06).
+Between them they exercise every hard part — patient self-booking, two durations, provider
+qualification, `OR` on resource types, resource assignment at booking time, cancellation and
+the concurrency re-check — without the treatment-case workflow an implant needs. If a third
+service is then only configuration, the model is right.
+
+**Booking is by `slotId`, not by date and time.** A slot is computed, not stored: it is the
+ability to fulfil a service in an interval, given who and what is free
+(`core-entities/scheduling-model.md`). The patient app therefore does no timezone arithmetic,
+and the resource is chosen inside the transaction where the service is known.
 
 **What this phase does and does not prove.** It proves the invariant holds under the
 supported deployment model — one application process writing `db/kpx.db`
@@ -340,7 +351,7 @@ can be. A second writer process would break it silently.
 - [ ] `Design/workflows/booking.md`, status `Draft`
 - [ ] R-rules restating catalogue rules 1–6, each naming its **code**
 - [ ] E-examples: a free slot · an overlapping chair · an overlapping doctor · a departed doctor
-- [ ] Decide the clinic-hours gap flagged in §5 — booking needs doctor free, chair free, **and clinic open**, and the third has no entity yet
+- [x] The clinic-hours gap is closed — `clinic_hours`, module 11
 
 **Verify:** a reader can predict the API's behaviour from the doc alone.
 
