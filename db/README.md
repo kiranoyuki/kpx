@@ -120,6 +120,31 @@ Patients will identify by `full_name` + `phone` + `national_id`, or by a
 one-time code to `phone`. Both read columns already present, so credential
 storage can be designed later without touching this table.
 
+### Two kinds of time, stored two different ways
+
+`conventions.md` §4. Getting these the same way round is the most likely time bug here,
+because every one of them is `TEXT` and they look alike.
+
+| Kind | Columns | Stored as | Example |
+|---|---|---|---|
+| **Scheduling** — when the clinic will see you | `appointment.scheduled_at`, `doctor_schedule.start_time`/`end_time`, every `*_date` | clinic wall time, **never converted** | `2026-08-20 10:00:00`, `08:00`, `2026-09-10` |
+| **Events** — when something happened | every other `*_at`, including `created_at`, `issued_at`, `paid_at`, `clock_in` | **UTC** | `2026-08-28 08:00:00` = 15:00 at the clinic |
+
+An appointment at 10:00 is a fact about the clinic's day — 10:00 whether the patient is in
+Hanoi or New York — so converting it would change what it means. "When did the patient press
+Book" is one moment observed from wherever they were, and only UTC keeps ordering straight
+across clients in different zones.
+
+To read an event in clinic time:
+
+```sql
+SELECT datetime(created_at, '+7 hours') FROM app_user;
+```
+
+`DEFAULT (datetime('now'))` is UTC, which is correct for an event column — but the API
+supplies every timestamp from its injected clock rather than relying on it, and never accepts
+one from a client. `datetime('now','localtime')` is the *server's* zone and is always wrong.
+
 ### Portal access comes from the profile, never from `role`
 
 | Portal | Granted when |

@@ -45,24 +45,24 @@ INSERT INTO commission_rule (id, role, staff_id, service_category_id, event_type
 -- --------------------------------------------------------------- attendance --
 -- Only the hourly assistant clocks in; monthly staff do not.
 INSERT INTO attendance_log (id, staff_id, date, clock_in, clock_out, total_minutes, notes) VALUES
-('at-01','st-ast01','2026-08-03','2026-08-03 08:00:00','2026-08-03 16:00:00',480,NULL),
-('at-02','st-ast01','2026-08-04','2026-08-04 08:00:00','2026-08-04 16:00:00',480,NULL),
-('at-03','st-ast01','2026-08-05','2026-08-05 08:00:00','2026-08-05 16:00:00',480,NULL),
-('at-04','st-ast01','2026-08-18','2026-08-18 08:00:00','2026-08-18 16:00:00',480,NULL),
-('at-05','st-ast01','2026-08-19','2026-08-19 08:00:00','2026-08-19 16:00:00',480,NULL),
-('at-06','st-ast01','2026-08-20','2026-08-20 08:00:00','2026-08-20 16:00:00',480,NULL),
-('at-07','st-ast01','2026-08-25','2026-08-25 08:00:00','2026-08-25 16:00:00',480,NULL),
-('at-08','st-ast01','2026-08-26','2026-08-26 08:00:00','2026-08-26 15:30:00',450,'Left early, dental appointment.'),
+('at-01', 'st-ast01', '2026-08-03', '2026-08-03 01:00:00', '2026-08-03 09:00:00', 480, NULL),
+('at-02', 'st-ast01', '2026-08-04', '2026-08-04 01:00:00', '2026-08-04 09:00:00', 480, NULL),
+('at-03', 'st-ast01', '2026-08-05', '2026-08-05 01:00:00', '2026-08-05 09:00:00', 480, NULL),
+('at-04', 'st-ast01', '2026-08-18', '2026-08-18 01:00:00', '2026-08-18 09:00:00', 480, NULL),
+('at-05', 'st-ast01', '2026-08-19', '2026-08-19 01:00:00', '2026-08-19 09:00:00', 480, NULL),
+('at-06', 'st-ast01', '2026-08-20', '2026-08-20 01:00:00', '2026-08-20 09:00:00', 480, NULL),
+('at-07', 'st-ast01', '2026-08-25', '2026-08-25 01:00:00', '2026-08-25 09:00:00', 480, NULL),
+('at-08', 'st-ast01', '2026-08-26', '2026-08-26 01:00:00', '2026-08-26 08:30:00', 450, 'Left early, dental appointment.'),
 -- September, still accruing and not yet in any payroll
-('at-09','st-ast01','2026-09-01','2026-09-01 08:00:00','2026-09-01 17:00:00',540,NULL),
-('at-10','st-ast01','2026-09-02','2026-09-02 08:00:00','2026-09-02 16:00:00',480,NULL),
-('at-11','st-ast01','2026-09-03','2026-09-03 08:00:00',NULL,NULL,'Shift still open.');
+('at-09', 'st-ast01', '2026-09-01', '2026-09-01 01:00:00', '2026-09-01 10:00:00', 540, NULL),
+('at-10', 'st-ast01', '2026-09-02', '2026-09-02 01:00:00', '2026-09-02 09:00:00', 480, NULL),
+('at-11', 'st-ast01', '2026-09-03', '2026-09-03 01:00:00', NULL, NULL, 'Shift still open.');
 
 -- ------------------------------------------- receptionist performance events --
 INSERT INTO receptionist_performance_log (id, receptionist_id, event_type, patient_id, appointment_id, occurred_at) VALUES
-('rpl-01','st-rec01','NewPatientRegistered','pp-01','ap-01','2026-08-25 09:45:00'),
-('rpl-02','st-rec01','NewPatientRegistered','pp-02','ap-02','2026-08-25 10:00:00'),
-('rpl-03','st-rec01','SuccessfulFollowUp',  'pp-04','ap-06','2026-09-02 14:30:00');
+('rpl-01', 'st-rec01', 'NewPatientRegistered', 'pp-01', 'ap-01', '2026-08-25 02:45:00'),
+('rpl-02', 'st-rec01', 'NewPatientRegistered', 'pp-02', 'ap-02', '2026-08-25 03:00:00'),
+('rpl-03', 'st-rec01', 'SuccessfulFollowUp', 'pp-04', 'ap-06', '2026-09-02 07:30:00');
 
 -- ----------------------------------------------------------- the payroll run --
 -- August 2026. The run is seeded the way it is actually performed, in three
@@ -88,32 +88,32 @@ UPDATE attendance_log SET payroll_record_id='pay-2608-ast01' WHERE date BETWEEN 
 -- ------------------------------------------------------- commission entries --
 -- AUGUST — settled into the payroll above.
 INSERT INTO commission_entry (id, staff_id, source_type, session_id, performance_log_id, commission_rule_id, commission_base, amount, status, payroll_record_id, earned_at) VALUES
-('ce-01','st-doc01','SessionCompleted','ps-01',NULL,'cr-01', 200000, 30000,'IncludedInPayroll','pay-2608-doc01','2026-08-25 09:45:00'),
-('ce-02','st-doc01','SessionCompleted','ps-02',NULL,'cr-01',1200000,180000,'IncludedInPayroll','pay-2608-doc01','2026-08-28 14:50:00'),
-('ce-03','st-ast01','SessionCompleted','ps-02',NULL,'cr-02',1200000, 60000,'IncludedInPayroll','pay-2608-ast01','2026-08-28 14:50:00'),
-('ce-04','st-doc04','SessionCompleted','ps-04',NULL,'cr-01', 200000, 30000,'IncludedInPayroll','pay-2608-doc04','2026-08-25 10:00:00'),
-('ce-05','st-rec01','ReceptionistEvent',NULL,'rpl-01','cr-05',0,100000,'IncludedInPayroll','pay-2608-rec01','2026-08-25 09:45:00'),
-('ce-06','st-rec01','ReceptionistEvent',NULL,'rpl-02','cr-05',0,100000,'IncludedInPayroll','pay-2608-rec01','2026-08-25 10:00:00');
+('ce-01', 'st-doc01', 'SessionCompleted', 'ps-01', NULL, 'cr-01', 200000, 30000, 'IncludedInPayroll', 'pay-2608-doc01', '2026-08-25 02:45:00'),
+('ce-02', 'st-doc01', 'SessionCompleted', 'ps-02', NULL, 'cr-01', 1200000, 180000, 'IncludedInPayroll', 'pay-2608-doc01', '2026-08-28 07:50:00'),
+('ce-03', 'st-ast01', 'SessionCompleted', 'ps-02', NULL, 'cr-02', 1200000, 60000, 'IncludedInPayroll', 'pay-2608-ast01', '2026-08-28 07:50:00'),
+('ce-04', 'st-doc04', 'SessionCompleted', 'ps-04', NULL, 'cr-01', 200000, 30000, 'IncludedInPayroll', 'pay-2608-doc04', '2026-08-25 03:00:00'),
+('ce-05', 'st-rec01', 'ReceptionistEvent', NULL, 'rpl-01', 'cr-05', 0, 100000, 'IncludedInPayroll', 'pay-2608-rec01', '2026-08-25 02:45:00'),
+('ce-06', 'st-rec01', 'ReceptionistEvent', NULL, 'rpl-02', 'cr-05', 0, 100000, 'IncludedInPayroll', 'pay-2608-rec01', '2026-08-25 03:00:00');
 
 -- SEPTEMBER — still Pending. Note ce-07 and ce-08: Dr Quỳnh and the assistant
 -- earn on Dr Minh's own whitening, because THEY did the work. Dr Minh earns
 -- nothing on it — he is the patient.
 INSERT INTO commission_entry (id, staff_id, source_type, session_id, performance_log_id, commission_rule_id, commission_base, amount, status, earned_at) VALUES
-('ce-07','st-doc04','SessionCompleted','ps-07',NULL,'cr-01',3000000,450000,'Pending','2026-09-01 16:00:00'),
-('ce-08','st-ast01','SessionCompleted','ps-07',NULL,'cr-02',3000000,150000,'Pending','2026-09-01 16:00:00'),
-('ce-09','st-doc04','SessionCompleted','ps-08',NULL,'cr-01', 500000, 75000,'Pending','2026-09-01 16:25:00'),
-('ce-10','st-ast01','SessionCompleted','ps-08',NULL,'cr-02', 500000, 25000,'Pending','2026-09-01 16:25:00'),
-('ce-11','st-doc04','SessionCompleted','ps-06',NULL,'cr-01', 500000, 75000,'Pending','2026-09-02 14:30:00'),
-('ce-12','st-ast01','SessionCompleted','ps-06',NULL,'cr-02', 500000, 25000,'Pending','2026-09-02 14:30:00'),
-('ce-13','st-doc01','SessionCompleted','ps-09',NULL,'cr-01',2400000,360000,'Pending','2026-09-03 10:35:00'),
-('ce-14','st-ast01','SessionCompleted','ps-09',NULL,'cr-02',2400000,120000,'Pending','2026-09-03 10:35:00'),
-('ce-15','st-rec01','ReceptionistEvent',NULL,'rpl-03','cr-06',0,50000,'Pending','2026-09-02 14:30:00');
+('ce-07', 'st-doc04', 'SessionCompleted', 'ps-07', NULL, 'cr-01', 3000000, 450000, 'Pending', '2026-09-01 09:00:00'),
+('ce-08', 'st-ast01', 'SessionCompleted', 'ps-07', NULL, 'cr-02', 3000000, 150000, 'Pending', '2026-09-01 09:00:00'),
+('ce-09', 'st-doc04', 'SessionCompleted', 'ps-08', NULL, 'cr-01', 500000, 75000, 'Pending', '2026-09-01 09:25:00'),
+('ce-10', 'st-ast01', 'SessionCompleted', 'ps-08', NULL, 'cr-02', 500000, 25000, 'Pending', '2026-09-01 09:25:00'),
+('ce-11', 'st-doc04', 'SessionCompleted', 'ps-06', NULL, 'cr-01', 500000, 75000, 'Pending', '2026-09-02 07:30:00'),
+('ce-12', 'st-ast01', 'SessionCompleted', 'ps-06', NULL, 'cr-02', 500000, 25000, 'Pending', '2026-09-02 07:30:00'),
+('ce-13', 'st-doc01', 'SessionCompleted', 'ps-09', NULL, 'cr-01', 2400000, 360000, 'Pending', '2026-09-03 03:35:00'),
+('ce-14', 'st-ast01', 'SessionCompleted', 'ps-09', NULL, 'cr-02', 2400000, 120000, 'Pending', '2026-09-03 03:35:00'),
+('ce-15', 'st-rec01', 'ReceptionistEvent', NULL, 'rpl-03', 'cr-06', 0, 50000, 'Pending', '2026-09-02 07:30:00');
 
 --   3. approve, then pay. Approval is the gate: every total above is now
 --      recomputed from the attendance, entries and adjustments actually linked.
-UPDATE payroll_record SET status='Approved', approved_by='u-mgr01', approved_at='2026-09-01 09:00:00'
+UPDATE payroll_record SET status='Approved', approved_by='u-mgr01', approved_at='2026-09-01 02:00:00'
  WHERE period_start='2026-08-01';
-UPDATE payroll_record SET status='Paid', paid_at='2026-09-01 10:00:00'
+UPDATE payroll_record SET status='Paid', paid_at='2026-09-01 03:00:00'
  WHERE period_start='2026-08-01';
 
 -- ---------------------------------------------------------- the chargeback --
@@ -122,12 +122,8 @@ UPDATE payroll_record SET status='Paid', paid_at='2026-09-01 10:00:00'
 -- to the operating dentist exceeds the refund, because the lab time and the
 -- free chair time are real losses too.
 INSERT INTO payroll_adjustment (id, staff_id, direction, amount, reason, related_commission_entry_id, related_invoice_id, related_failure_id, status, created_by, created_at) VALUES
-('adj-01','st-doc01','Debit',1500000,
- 'Retained root fragment at extraction of #46 (tf-01). Clinic refunded the 1,200,000 fee and is redoing the work at no charge. Charged back at 1,500,000 to cover the refund plus the surgical chair time.',
- 'ce-02','inv-01','tf-01','Pending','u-mgr01','2026-09-01 11:35:00'),
+('adj-01', 'st-doc01', 'Debit', 1500000, 'Retained root fragment at extraction of #46 (tf-01). Clinic refunded the 1,200,000 fee and is redoing the work at no charge. Charged back at 1,500,000 to cover the refund plus the surgical chair time.', 'ce-02', 'inv-01', 'tf-01', 'Pending', 'u-mgr01', '2026-09-01 04:35:00'),
 -- a credit, so both directions are exercised
-('adj-02','st-ast01','Credit',500000,
- 'Covered two Saturday emergency sessions at short notice in August.',
- NULL,NULL,NULL,'Pending','u-mgr01','2026-09-01 11:40:00');
+('adj-02', 'st-ast01', 'Credit', 500000, 'Covered two Saturday emergency sessions at short notice in August.', NULL, NULL, NULL, 'Pending', 'u-mgr01', '2026-09-01 04:40:00');
 
 COMMIT;

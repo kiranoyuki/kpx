@@ -33,25 +33,25 @@ INSERT INTO doctor_schedule (id, doctor_id, day_of_week, date, start_time, end_t
 INSERT INTO appointment
     (id, person_id, doctor_id, chair_id, scheduled_at, duration_minutes, type, status,
      booking_channel, assistant_id, followed_up_by, notes, created_by, created_at) VALUES
-('ap-01','u-pat01','st-doc01','ch-01','2026-08-25 09:00:00',45,'Consultation','Completed','FrontDesk',NULL,      NULL,      'Routine check.',                                   'u-rec01','2026-08-20 10:05:00'),
-('ap-02','u-pat02','st-doc04','ch-02','2026-08-25 09:00:00',60,'Procedure',   'Completed','Online',   'st-ast01',NULL,      'Same slot, second chair — parallel capacity.',      NULL,     '2026-08-18 21:30:00'),
+('ap-01', 'u-pat01', 'st-doc01', 'ch-01', '2026-08-25 09:00:00', 45, 'Consultation', 'Completed', 'FrontDesk', NULL, NULL, 'Routine check.', 'u-rec01', '2026-08-20 03:05:00'),
+('ap-02', 'u-pat02', 'st-doc04', 'ch-02', '2026-08-25 09:00:00', 60, 'Procedure', 'Completed', 'Online', 'st-ast01', NULL, 'Same slot, second chair — parallel capacity.', NULL, '2026-08-18 14:30:00'),
 
 -- a Provisional person who booked online and never arrived
-('ap-03','u-prv02','st-doc01','ch-01','2026-08-20 10:00:00',45,'Consultation','NoShow',   'Online',   NULL,      NULL,      'Self-booked online, did not attend.',              NULL,     '2026-08-11 21:47:00'),
+('ap-03', 'u-prv02', 'st-doc01', 'ch-01', '2026-08-20 10:00:00', 45, 'Consultation', 'NoShow', 'Online', NULL, NULL, 'Self-booked online, did not attend.', NULL, '2026-08-11 14:47:00'),
 
 -- a Provisional person holding a FUTURE booking: not yet a patient, but the
 -- appointment points at them perfectly well
-('ap-04','u-prv01','st-doc04','ch-01','2026-09-05 16:00:00',45,'Consultation','Scheduled','Online',   NULL,      NULL,      'New patient, self-booked. Verify CCCD on arrival.',NULL,'2026-08-26 20:14:00'),
+('ap-04', 'u-prv01', 'st-doc04', 'ch-01', '2026-09-05 16:00:00', 45, 'Consultation', 'Scheduled', 'Online', NULL, NULL, 'New patient, self-booked. Verify CCCD on arrival.', NULL, '2026-08-26 13:14:00'),
 
 -- a follow-up the receptionist chased — her KPI credit
-('ap-05','u-pat03','st-doc01','ch-03','2026-09-03 08:30:00',90,'Procedure',   'Confirmed','Phone',    'st-ast01','u-rec01', 'Booked after recall call.',                        'u-rec01','2026-08-28 09:20:00'),
-('ap-06','u-pat04','st-doc04','ch-02','2026-09-02 14:00:00',30,'Followup',    'Completed','FrontDesk',NULL,      'u-rec01', 'Six-month recall. Attended.',                      'u-rec01','2026-08-30 11:00:00'),
+('ap-05', 'u-pat03', 'st-doc01', 'ch-03', '2026-09-03 08:30:00', 90, 'Procedure', 'Confirmed', 'Phone', 'st-ast01', 'u-rec01', 'Booked after recall call.', 'u-rec01', '2026-08-28 02:20:00'),
+('ap-06', 'u-pat04', 'st-doc04', 'ch-02', '2026-09-02 14:00:00', 30, 'Followup', 'Completed', 'FrontDesk', NULL, 'u-rec01', 'Six-month recall. Attended.', 'u-rec01', '2026-08-30 04:00:00'),
 
 -- in the chair right now, so occupancy has something to report
-('ap-07','u-pat02','st-doc01','ch-01','2026-09-03 10:00:00',60,'Procedure',   'InProgress','FrontDesk','st-ast01',NULL,     'Currently in the chair.',                          'u-rec01','2026-08-27 15:40:00'),
+('ap-07', 'u-pat02', 'st-doc01', 'ch-01', '2026-09-03 10:00:00', 60, 'Procedure', 'InProgress', 'FrontDesk', 'st-ast01', NULL, 'Currently in the chair.', 'u-rec01', '2026-08-27 08:40:00'),
 
 -- cancelled: must RELEASE its slot, so ch-02 is free at that time
-('ap-08','u-pat03','st-doc04','ch-02','2026-08-28 11:00:00',60,'Procedure',   'Cancelled','FrontDesk',NULL,      NULL,      'Patient cancelled, work commitment.',              'u-rec01','2026-08-21 09:00:00');
+('ap-08', 'u-pat03', 'st-doc04', 'ch-02', '2026-08-28 11:00:00', 60, 'Procedure', 'Cancelled', 'FrontDesk', NULL, NULL, 'Patient cancelled, work commitment.', 'u-rec01', '2026-08-21 02:00:00');
 
 
 COMMIT;
