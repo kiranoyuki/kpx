@@ -45,9 +45,10 @@ change of law where an offset silently would not.
 
 1. **This PR** — the policy, and `shared/time.ts` matching it. Stops new code writing the
    wrong shape. No schema change.
-2. **Audit columns → UTC.** 29 columns across 9 modules currently hold clinic-local in the
-   seed; ~256 datetime literals shift by −7h. `DEFAULT (datetime('now'))` is already UTC and
-   becomes correct rather than a trap.
+2. **Audit columns → UTC.** ✅ Done 2026-09-06. 267 event values across 31 columns and 8 seed
+   files shifted −7h; 158 scheduling values untouched, verified value by value against a
+   snapshot taken first. `DEFAULT (datetime('now'))` is already UTC and is now correct rather
+   than a trap.
 3. **`appointment.scheduled_at` → `appointment_date` + `start_time`.** Touches 5 views, 3
    indexes and `v_appt_outside_schedule`. Cheapest now, before Phase B1 builds rule 2 and the
    day sheet on top of it.
